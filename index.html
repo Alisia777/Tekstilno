@@ -15,7 +15,7 @@
         <span class="eyebrow">Текстильно · GitHub Pages</span>
         <h1 id="siteTitle">Тетрадь менеджеров и координатора</h1>
         <p class="lead">
-          WB и Ozon-менеджеры получают пакет артикулов на день, отмечают статусы, ведут тетрадь действий и сдают факт. Координатор поставок работает в том же журнале, но без пакета артикулов.
+          Сайт разделён по площадкам: сначала выбираете WB, Ozon или поставки, потом сотрудника. Менеджер видит свой пакет артикулов, конкретное действие по каждому артикулу, ведёт тетрадь действий и сдаёт факт. Ежедневные правки задач можно обновлять через JSON без переделки всего сайта.
         </p>
         <div class="hero-actions">
           <button type="button" class="btn btn-primary" id="saveDraftBtnTop">Сохранить черновик</button>
@@ -69,12 +69,21 @@
             </label>
 
             <label class="field">
+              <span>Площадка</span>
+              <select id="channelFilter">
+                <option value="WB">WB</option>
+                <option value="Ozon">Ozon</option>
+                <option value="Поставки">Поставки</option>
+              </select>
+            </label>
+
+            <label class="field">
               <span>Сотрудник / роль</span>
               <select id="managerSelect"></select>
             </label>
 
             <label class="field">
-              <span>Канал</span>
+              <span>Канал / площадка</span>
               <input type="text" id="channel" readonly />
             </label>
 
@@ -189,7 +198,7 @@
           <div class="panel-head">
             <div>
               <h2>Задачи на день</h2>
-              <p>Ежедневные задачи можно менять в файле <code>data/daily-tasks.json</code>. Менеджер здесь ставит статус и комментарий.</p>
+              <p>Общие задачи роли меняются в <code>data/daily-tasks.json</code>. Точные действия по артикулу и критичность берутся из <code>data/daily-article-overrides.json</code>.</p>
             </div>
           </div>
           <div id="tasksList" class="tasks-list">
@@ -203,6 +212,35 @@
               <h2>20 артикулов на день</h2>
               <p>Пакет собирается автоматически по рабочему дню месяца. Внутри он уже разложен по приоритету: сначала критично, затем срочно, затем планово. Для каждого артикула менеджер видит, что именно нужно сделать сегодня.</p>
             </div>
+          </div>
+
+          <div class="article-filters">
+            <label class="field">
+              <span>Фильтр по приоритету</span>
+              <select id="articlePriorityFilter">
+                <option value="all">Все</option>
+                <option value="critical">Критично</option>
+                <option value="urgent">Срочно</option>
+                <option value="planned">Планово</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Фильтр по статусу выполнения</span>
+              <select id="articleStatusFilter">
+                <option value="all">Все</option>
+                <option value="not_started">Не начато</option>
+                <option value="in_progress">В работе</option>
+                <option value="done">Сделано</option>
+                <option value="review">Проверить повторно</option>
+                <option value="blocked">Блокер</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Поиск по артикулу / SKU / товару</span>
+              <input type="text" id="articleSearch" placeholder="Например: 348226716 или лонгслив" />
+            </label>
           </div>
 
           <div class="table-wrap">
@@ -320,14 +358,14 @@
             <button type="button" class="btn btn-secondary wide" id="downloadPackBtn">Скачать текущий пакет CSV</button>
           </div>
           <p class="muted small-text">
-            Пока Google-скрипт не подключён, всё работает локально в браузере. В этой версии основной упор сделан на пакет артикулов, задачи дня и тетрадь действий.
+            Пока Google-скрипт не подключён, всё работает локально в браузере. Ежедневные входные данные можно обновлять через JSON, а после подключения Google выгруженные отчёты будут складываться в общую таблицу.
           </p>
         </section>
       </aside>
     </div>
 
     <footer class="footer">
-      <p>Эта версия уже заточена под ваш процесс: реальные роли, 20 артикулов в день, отдельное поле «что сделать сегодня», комментарий из файла, тетрадь действий и режим координатора поставок.</p>
+      <p>Версия v6: раздельный выбор WB / Ozon / поставки, рабочие фильтры по пакету артикулов, ежедневные инструкции по артикулу и тетрадь действий в одном интерфейсе.</p>
     </footer>
   </div>
 

@@ -94,7 +94,7 @@ function doGet() {
   return ContentService
     .createTextOutput(JSON.stringify({
       ok: true,
-      service: "manager-journal-site-v5",
+      service: "manager-journal-site-v6",
       timestamp: new Date().toISOString()
     }))
     .setMimeType(ContentService.MimeType.JSON);

@@ -1,5 +1,6 @@
 const DEFAULT_CONFIG = {
   organizationName: "Текстильно",
+  siteVersion: "v6",
   appsScriptUrl: "",
   googleSheetUrl: "",
   packSize: 20,
@@ -7,25 +8,34 @@ const DEFAULT_CONFIG = {
   clearAfterSubmit: false,
   maxLocalReports: 40,
   planDataUrl: "data/article-plan.json",
-  tasksDataUrl: "data/daily-tasks.json"
+  tasksDataUrl: "data/daily-tasks.json",
+  overridesDataUrl: "data/daily-article-overrides.json"
 };
 
-const STORAGE_PREFIX = "manager-journal-v5";
+const STORAGE_PREFIX = "manager-journal-v6";
 const HISTORY_KEY = `${STORAGE_PREFIX}:reports`;
 
 const state = {
   config: { ...DEFAULT_CONFIG, ...(window.APP_CONFIG || {}) },
   planData: null,
   tasksData: null,
+  overridesData: null,
   managerKey: "",
   managerData: null,
+  currentChannel: "",
   dynamicTasks: [],
   articleStates: {},
   actions: [],
   packMeta: null,
   dailyPack: [],
+  filteredPack: [],
   lastMessageTimeout: null,
-  currentReportId: null
+  currentReportId: null,
+  articleFilters: {
+    priority: "all",
+    status: "all",
+    search: ""
+  }
 };
 
 const els = {};
@@ -43,14 +53,16 @@ async function init() {
   refreshContext({ shouldRestoreDraft: true });
 }
 
+
 function cacheElements() {
   [
-    "siteTitle","statusBanner","planStatusBadge","packStatusBadge","submitStatusBadge","managerSelect","reportDate","channel","department",
+    "siteTitle","statusBanner","planStatusBadge","packStatusBadge","submitStatusBadge","channelFilter","managerSelect","reportDate","channel","department",
     "dayFocus","overallStatus","managerLinkPreview","packBadge","articlesCountBadge","sourceBadge","priorityBadge","headlineArticles","headlineArticlesSub",
     "headlineOrdersPlan","headlineMarginPlan","headlineRevenuePlan","headlineOrdersSub","headlineMarginSub","headlineRevenueSub",
     "ordersPlanCell","ordersFact","ordersDeviation","marginPlanCell","marginFact","marginDeviation","revenuePlanCell","revenueFact","revenueDeviation",
     "numbersComment","rowFactsHint","tasksList","articlesBody","actionsList","doneSummary","blockers","helpNeeded","tomorrowFocus",
-    "formMessage","managerSummaryList","localHistoryList","openSheetBtn","openSheetBtnTop","downloadPackBtn","numbersPanel","articlesPanel"
+    "formMessage","managerSummaryList","localHistoryList","openSheetBtn","openSheetBtnTop","downloadPackBtn","numbersPanel","articlesPanel",
+    "articlePriorityFilter","articleStatusFilter","articleSearch"
   ].forEach((id) => {
     els[id] = document.getElementById(id);
   });
@@ -67,8 +79,10 @@ function cacheElements() {
   els.submitFrame = document.getElementById("submitFrame");
 }
 
+
 function bindEvents() {
-  els.managerSelect.addEventListener("change", () => refreshContext({ shouldRestoreDraft: true }));
+  els.channelFilter.addEventListener("change", handleChannelChange);
+  els.managerSelect.addEventListener("change", handleManagerChange);
   els.reportDate.addEventListener("change", () => refreshContext({ shouldRestoreDraft: true }));
   els.dayFocus.addEventListener("input", handleScalarInput);
   els.department.addEventListener("input", handleScalarInput);
@@ -81,6 +95,16 @@ function bindEvents() {
   els.blockers.addEventListener("input", handleScalarInput);
   els.helpNeeded.addEventListener("input", handleScalarInput);
   els.tomorrowFocus.addEventListener("input", handleScalarInput);
+
+  if (els.articlePriorityFilter) {
+    els.articlePriorityFilter.addEventListener("change", handleArticleFilterChange);
+  }
+  if (els.articleStatusFilter) {
+    els.articleStatusFilter.addEventListener("change", handleArticleFilterChange);
+  }
+  if (els.articleSearch) {
+    els.articleSearch.addEventListener("input", handleArticleFilterChange);
+  }
 
   els.tasksList.addEventListener("input", handleTaskInput);
   els.tasksList.addEventListener("change", handleTaskInput);
@@ -97,7 +121,11 @@ function bindEvents() {
     els.copyLinkBtn.addEventListener("click", copyManagerLink);
   }
   if (els.reloadBtn) {
-    els.reloadBtn.addEventListener("click", () => refreshContext({ shouldRestoreDraft: true }));
+    els.reloadBtn.addEventListener("click", async () => {
+      await loadData();
+      hydrateManagers();
+      refreshContext({ shouldRestoreDraft: true });
+    });
   }
   els.syncFactsBtn.addEventListener("click", syncFactsFromRows);
   els.addActionBtn.addEventListener("click", addActionRow);
@@ -114,6 +142,66 @@ function bindEvents() {
   }
 }
 
+
+function getVersionedUrl(url) {
+  const value = state.config.siteVersion || Date.now();
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(value)}`;
+}
+
+function getManagerChannel(manager) {
+  if (!manager) return "";
+  if (manager.role === "supplyCoordinator") return "Поставки";
+  return manager.channel || "";
+}
+
+function getChannelOptions() {
+  const managers = (state.planData && state.planData.managers) || {};
+  const channels = new Set(Object.values(managers).map(getManagerChannel).filter(Boolean));
+  return ["WB", "Ozon", "Поставки"].filter((item) => channels.has(item));
+}
+
+function getManagerNamesForChannel(channel) {
+  const managers = (state.planData && state.planData.managers) || {};
+  return Object.keys(managers)
+    .filter((name) => getManagerChannel(managers[name]) === channel)
+    .sort((a, b) => a.localeCompare(b, "ru"));
+}
+
+function handleChannelChange() {
+  state.currentChannel = els.channelFilter.value;
+  hydrateManagers({ preserveManager: false });
+  refreshContext({ shouldRestoreDraft: true });
+}
+
+function handleManagerChange() {
+  const manager = state.planData?.managers?.[els.managerSelect.value];
+  if (manager) {
+    const channel = getManagerChannel(manager);
+    state.currentChannel = channel;
+    if (els.channelFilter.value !== channel) {
+      els.channelFilter.value = channel;
+    }
+  }
+  refreshContext({ shouldRestoreDraft: true });
+}
+
+function handleArticleFilterChange() {
+  state.articleFilters.priority = els.articlePriorityFilter ? els.articlePriorityFilter.value : "all";
+  state.articleFilters.status = els.articleStatusFilter ? els.articleStatusFilter.value : "all";
+  state.articleFilters.search = els.articleSearch ? els.articleSearch.value.trim().toLowerCase() : "";
+  renderArticles();
+  saveDraft(false);
+}
+
+
+function resetArticleFilters() {
+  state.articleFilters = { priority: "all", status: "all", search: "" };
+  if (els.articlePriorityFilter) els.articlePriorityFilter.value = "all";
+  if (els.articleStatusFilter) els.articleStatusFilter.value = "all";
+  if (els.articleSearch) els.articleSearch.value = "";
+}
+
 function setupStaticTexts() {
   if (els.siteTitle) {
     els.siteTitle.textContent = `${state.config.organizationName} — тетрадь менеджеров и координатора`;
@@ -127,11 +215,17 @@ function setDefaultDate() {
   els.reportDate.value = formatDateInput(today);
 }
 
+
 async function loadData() {
   try {
-    const [planResponse, tasksResponse] = await Promise.all([
-      fetch(state.config.planDataUrl, { cache: "no-store" }),
-      fetch(state.config.tasksDataUrl, { cache: "no-store" })
+    const planUrl = getVersionedUrl(state.config.planDataUrl);
+    const tasksUrl = getVersionedUrl(state.config.tasksDataUrl);
+    const overridesUrl = getVersionedUrl(state.config.overridesDataUrl);
+
+    const [planResponse, tasksResponse, overridesResponse] = await Promise.all([
+      fetch(planUrl, { cache: "no-store" }),
+      fetch(tasksUrl, { cache: "no-store" }),
+      fetch(overridesUrl, { cache: "no-store" })
     ]);
 
     if (!planResponse.ok) {
@@ -140,22 +234,52 @@ async function loadData() {
     if (!tasksResponse.ok) {
       throw new Error(`Не удалось загрузить daily-tasks.json (${tasksResponse.status})`);
     }
+    if (!overridesResponse.ok) {
+      throw new Error(`Не удалось загрузить daily-article-overrides.json (${overridesResponse.status})`);
+    }
 
     state.planData = await planResponse.json();
     state.tasksData = await tasksResponse.json();
+    state.overridesData = await overridesResponse.json();
 
-    els.planStatusBadge.textContent = `${Object.keys(state.planData.managers || {}).length} роли`;
-    setBanner(`Данные плана загружены. Для WB и Ozon подтянуты комментарии по артикулам и блок «что сделать сегодня».`, "success");
+    const rolesCount = Object.keys(state.planData.managers || {}).length;
+    els.planStatusBadge.textContent = `${rolesCount} роли`;
+    setBanner("Данные загружены: площадки разделены, менеджеры отфильтрованы по каналу, инструкции по артикулам подтянуты из daily-article-overrides.json.", "success");
   } catch (error) {
     console.error(error);
-    setBanner(`Не получилось загрузить данные сайта: ${error.message}. Проверьте, что репозиторий содержит data/article-plan.json и data/daily-tasks.json.`, "error");
+    setBanner(`Не получилось загрузить данные сайта: ${error.message}. Проверьте файлы data/article-plan.json, data/daily-tasks.json и data/daily-article-overrides.json.`, "error");
     els.planStatusBadge.textContent = "ошибка";
   }
 }
 
-function hydrateManagers() {
-  const managerNames = Object.keys((state.planData && state.planData.managers) || {}).sort((a, b) => a.localeCompare(b, "ru"));
+function hydrateManagers({ preserveManager = true } = {}) {
+  const managers = (state.planData && state.planData.managers) || {};
+  const channelOptions = getChannelOptions();
+
+  if (!els.channelFilter) return;
+
+  const previousChannel = state.currentChannel || els.channelFilter.value;
+  if (!channelOptions.includes(els.channelFilter.value)) {
+    els.channelFilter.innerHTML = channelOptions.map((channel) => `<option value="${escapeHtml(channel)}">${escapeHtml(channel)}</option>`).join("");
+  }
+
+  const desiredChannel = channelOptions.includes(previousChannel) ? previousChannel : channelOptions[0];
+  state.currentChannel = desiredChannel || "";
+  if (desiredChannel) {
+    els.channelFilter.value = desiredChannel;
+  }
+
+  const managerNames = getManagerNamesForChannel(state.currentChannel);
+  const previousManager = preserveManager ? els.managerSelect.value : "";
   els.managerSelect.innerHTML = managerNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+
+  const keepManager = previousManager && managerNames.includes(previousManager);
+  if (keepManager) {
+    els.managerSelect.value = previousManager;
+  } else if (managerNames.length) {
+    els.managerSelect.selectedIndex = 0;
+  }
+
   renderManagerSummary();
 }
 
@@ -169,9 +293,10 @@ function renderManagerSummary() {
 
   els.managerSummaryList.innerHTML = names.map((name) => {
     const item = managers[name];
+    const channel = getManagerChannel(item);
     const suffix = item.articleCount
-      ? `${item.channel}, ${item.articleCount} артикулов, ${item.packCount} пакета`
-      : `${item.channel}, без пакета артикулов`;
+      ? `${channel}, ${item.articleCount} артикулов, ${item.packCount} пакета`
+      : `${channel}, без пакета артикулов`;
     return `<li><strong>${escapeHtml(name)}</strong> — ${escapeHtml(suffix)}</li>`;
   }).join("");
 }
@@ -179,24 +304,46 @@ function renderManagerSummary() {
 function applyQueryDefaults() {
   const params = new URLSearchParams(window.location.search);
   const managerFromQuery = params.get("manager");
+  const channelFromQuery = params.get("channel");
   const dateFromQuery = params.get("date");
-
-  if (managerFromQuery && state.planData && state.planData.managers && state.planData.managers[managerFromQuery]) {
-    els.managerSelect.value = managerFromQuery;
-  }
 
   if (dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery)) {
     els.reportDate.value = dateFromQuery;
   }
 
-  if (!els.managerSelect.value && els.managerSelect.options.length) {
-    els.managerSelect.selectedIndex = 0;
+  const managers = state.planData?.managers || {};
+
+  if (managerFromQuery && managers[managerFromQuery]) {
+    const channel = getManagerChannel(managers[managerFromQuery]);
+    state.currentChannel = channel;
+    els.channelFilter.value = channel;
+    hydrateManagers({ preserveManager: false });
+    els.managerSelect.value = managerFromQuery;
+    return;
   }
+
+  if (channelFromQuery && getChannelOptions().includes(channelFromQuery)) {
+    state.currentChannel = channelFromQuery;
+    els.channelFilter.value = channelFromQuery;
+    hydrateManagers({ preserveManager: false });
+    return;
+  }
+
+  hydrateManagers({ preserveManager: true });
 }
 
 function refreshContext({ shouldRestoreDraft = false } = {}) {
   if (!state.planData || !state.planData.managers) {
     return;
+  }
+
+  if (!els.managerSelect.value) {
+    const managerNames = getManagerNamesForChannel(els.channelFilter.value || state.currentChannel || "");
+    if (managerNames.length) {
+      els.managerSelect.value = managerNames[0];
+    } else {
+      return;
+    }
   }
 
   state.managerKey = els.managerSelect.value;
@@ -206,9 +353,14 @@ function refreshContext({ shouldRestoreDraft = false } = {}) {
     return;
   }
 
+  state.currentChannel = getManagerChannel(state.managerData);
+  if (els.channelFilter.value !== state.currentChannel) {
+    els.channelFilter.value = state.currentChannel;
+  }
+
   state.currentReportId = cryptoRandomId();
 
-  els.channel.value = state.managerData.channel || "";
+  els.channel.value = getManagerChannel(state.managerData) || "";
   if (!els.department.value || shouldRestoreDraft) {
     els.department.value = state.managerData.department || "";
   }
@@ -216,18 +368,21 @@ function refreshContext({ shouldRestoreDraft = false } = {}) {
   updateManagerLinkPreview();
   buildTasksForContext();
   buildPackForContext();
+  resetArticleFilters();
+
   if (state.managerData.role !== "supplyCoordinator") {
     const packText = state.dailyPack.length ? `Пакет ${state.packMeta.packNo} из ${state.packMeta.packCount} готов.` : "Пакет пустой.";
-    setBanner(`${state.managerKey}: ${packText}`, "success");
+    setBanner(`${state.currentChannel} · ${state.managerKey}: ${packText}`, "success");
   }
+
   toggleRoleSections();
+
   if (shouldRestoreDraft) {
     restoreDraft();
-  } else {
-    if (!state.actions.length) {
-      state.actions = [makeEmptyAction()];
-    }
+  } else if (!state.actions.length) {
+    state.actions = [makeEmptyAction()];
   }
+
   renderAll();
 }
 
@@ -236,6 +391,7 @@ function buildTasksForContext() {
   const managerName = state.managerKey;
   const taskSources = [];
   const tasksData = state.tasksData || {};
+  const previousById = Object.fromEntries((state.dynamicTasks || []).map((task) => [task.id, task]));
 
   taskSources.push(...(tasksData.defaultTasks || []));
   taskSources.push(...(((tasksData.managerDefaults || {})[managerName]) || []));
@@ -244,13 +400,16 @@ function buildTasksForContext() {
   taskSources.push(...(byDate.all || []));
   taskSources.push(...(((byDate.managers || {})[managerName]) || []));
 
-  state.dynamicTasks = taskSources.map((task, index) => ({
-    id: task.id || slugify(`${managerName}-${dateKey}-${task.title || index}`),
-    title: task.title || `Задача ${index + 1}`,
-    type: task.type || "task",
-    status: "",
-    comment: ""
-  }));
+  state.dynamicTasks = taskSources.map((task, index) => {
+    const id = task.id || slugify(`${managerName}-${dateKey}-${task.title || index}`);
+    return {
+      id,
+      title: task.title || `Задача ${index + 1}`,
+      type: task.type || "task",
+      status: previousById[id]?.status || "",
+      comment: previousById[id]?.comment || ""
+    };
+  });
 }
 
 function buildPackForContext() {
@@ -265,6 +424,7 @@ function buildPackForContext() {
   if (!orderedArticles.length) {
     state.articleStates = {};
     state.dailyPack = [];
+    state.filteredPack = [];
     state.packMeta = {
       packNo: 0,
       packCount: 0,
@@ -272,11 +432,12 @@ function buildPackForContext() {
       workingDays: getWorkingDaysInMonth(reportDate),
       monthKey,
       anchorDate: formatDateInput(getCycleAnchorDate(reportDate)),
-      totalPlan: { orders: 0, margin: 0, revenue: 0 }
+      totalPlan: { orders: 0, margin: 0, revenue: 0 },
+      bucketCounts: { critical: 0, urgent: 0, planned: 0 }
     };
     els.packBadge.textContent = "Пакет — не используется";
     els.articlesCountBadge.textContent = "Артикулы: 0";
-    els.sourceBadge.textContent = `Источник: ${state.managerData?.channel || "—"}`;
+    els.sourceBadge.textContent = `Источник: ${getManagerChannel(state.managerData) || "—"}`;
     if (els.priorityBadge) {
       els.priorityBadge.textContent = "Приоритеты: нет пакета";
     }
@@ -300,13 +461,13 @@ function buildPackForContext() {
 
   dailyPack.forEach((article, index) => {
     const key = getArticleKey(article);
+    const merged = getMergedArticleView(article);
     const metrics = getMonthMetrics(article, monthKey);
     const dailyPlan = {
       orders: safeDivide(metrics.orders, workingDays),
       margin: safeDivide(metrics.marginIncome, workingDays),
       revenue: safeDivide(metrics.revenue, workingDays)
     };
-    const priorityBucket = getPriorityBucket(index, dailyPack.length);
 
     totalPlan.orders += dailyPlan.orders;
     totalPlan.margin += dailyPlan.margin;
@@ -315,8 +476,10 @@ function buildPackForContext() {
     state.articleStates[key] = {
       key,
       priority: index + 1,
-      priorityBucket: article.priorityBucket || priorityBucket,
-      priorityReason: article.priorityReason || "",
+      priorityBucket: merged.priorityBucket || getPriorityBucket(index, dailyPack.length),
+      priorityReason: merged.priorityReason || "",
+      managerTask: merged.managerTask || "",
+      sourceComment: merged.sourceComment || "",
       status: previousArticleState[key]?.status || "",
       comment: previousArticleState[key]?.comment || "",
       factOrders: previousArticleState[key]?.factOrders || "",
@@ -345,7 +508,7 @@ function buildPackForContext() {
 
   els.packBadge.textContent = `Пакет ${state.packMeta.packNo} из ${state.packMeta.packCount}`;
   els.articlesCountBadge.textContent = `Артикулы: ${desiredLength}`;
-  els.sourceBadge.textContent = `Источник: ${state.managerData.channel}`;
+  els.sourceBadge.textContent = `Источник: ${getManagerChannel(state.managerData)}`;
   if (els.priorityBadge) {
     const c = bucketCounts.critical || 0;
     const u = bucketCounts.urgent || 0;
@@ -353,6 +516,7 @@ function buildPackForContext() {
     els.priorityBadge.textContent = `Приоритеты: критично ${c} · срочно ${u} · планово ${p}`;
   }
 }
+
 
 function renderAll() {
   renderSummary();
@@ -416,6 +580,40 @@ function renderTasks() {
   `).join("");
 }
 
+
+function getFilteredPack() {
+  const priority = state.articleFilters.priority || "all";
+  const status = state.articleFilters.status || "all";
+  const search = (state.articleFilters.search || "").trim().toLowerCase();
+
+  return state.dailyPack.filter((article) => {
+    const key = getArticleKey(article);
+    const row = state.articleStates[key] || {};
+    const merged = getMergedArticleView(article);
+    const effectiveStatus = row.status || "not_started";
+
+    if (priority !== "all" && (row.priorityBucket || merged.priorityBucket || "planned") !== priority) {
+      return false;
+    }
+    if (status !== "all" && effectiveStatus !== status) {
+      return false;
+    }
+    if (search) {
+      const haystack = [
+        String(article.wbArticle || ""),
+        String(article.sellerArticle || ""),
+        String(article.name || ""),
+        String(merged.managerTask || ""),
+        String(merged.sourceComment || "")
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(search)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 function renderArticles() {
   if (!state.dailyPack.length) {
     const message = state.managerData?.role === "supplyCoordinator"
@@ -425,9 +623,18 @@ function renderArticles() {
     return;
   }
 
-  els.articlesBody.innerHTML = state.dailyPack.map((article, index) => {
+  const filteredPack = getFilteredPack();
+  state.filteredPack = filteredPack;
+
+  if (!filteredPack.length) {
+    els.articlesBody.innerHTML = `<tr><td colspan="11" class="empty-state cell-empty">По выбранному фильтру артикулы не найдены. Сбросьте фильтр по приоритету, статусу или поиску.</td></tr>`;
+    return;
+  }
+
+  els.articlesBody.innerHTML = filteredPack.map((article) => {
     const key = getArticleKey(article);
     const articleState = state.articleStates[key] || {};
+    const merged = getMergedArticleView(article);
     const metrics = getMonthMetrics(article, state.packMeta.monthKey);
     const dailyPlan = articleState.dailyPlan || { orders: 0, margin: 0, revenue: 0 };
     const monthBuyout = metrics.buyout ?? article.targetBuyout ?? article.baseBuyout;
@@ -437,14 +644,15 @@ function renderArticles() {
       monthBuyout !== null && monthBuyout !== undefined && monthBuyout !== "" ? `Выкуп: ${formatPercent(monthBuyout)}` : ""
     ].filter(Boolean).join(" · ");
 
-    const sourceComment = article.sourceComment || article.managerComment || "";
-    const managerTask = article.managerTask || "Проверить цену, рекламу, остатки и выполнить план дня по артикулу.";
-    const priorityReason = article.priorityReason || articleState.priorityReason || "";
+    const sourceComment = articleState.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "";
+    const managerTask = articleState.managerTask || merged.managerTask || article.managerTask || "Проверить цену, рекламу, остатки и выполнить план дня по артикулу.";
+    const priorityReason = articleState.priorityReason || merged.priorityReason || article.priorityReason || "";
+    const priorityBucket = articleState.priorityBucket || merged.priorityBucket || "planned";
 
     return `
       <tr data-article-key="${escapeHtml(key)}">
-        <td><strong>${index + 1}</strong></td>
-        <td><span class="pill ${articleState.priorityBucket || "planned"}">${getPriorityLabel(articleState.priorityBucket)}</span></td>
+        <td><strong>${articleState.priority || "—"}</strong></td>
+        <td><span class="pill ${priorityBucket}">${getPriorityLabel(priorityBucket)}</span></td>
         <td>
           <div class="product-title">${article.wbArticle ? escapeHtml(String(article.wbArticle)) : "—"}</div>
           <div class="product-meta">${escapeHtml(article.sellerArticle || "")}</div>
@@ -455,7 +663,7 @@ function renderArticles() {
         </td>
         <td class="work-cell">
           <div class="work-title">${escapeHtml(managerTask)}</div>
-          ${sourceComment ? `<div class="product-note source-comment">Комментарий из файла: ${escapeHtml(sourceComment)}</div>` : `<div class="product-note source-comment">Комментарий из файла не указан.</div>`}
+          ${sourceComment ? `<div class="product-note source-comment">Комментарий из анализа: ${escapeHtml(sourceComment)}</div>` : `<div class="product-note source-comment">Комментарий из анализа не указан.</div>`}
           ${priorityReason ? `<div class="small-text priority-reason">Почему в приоритете: ${escapeHtml(priorityReason)}</div>` : ""}
         </td>
         <td>
@@ -480,7 +688,7 @@ function renderArticles() {
         </td>
         <td class="row-select">
           <select data-article-field="status">
-            ${renderWorkStatusOptions(articleState.status)}
+            ${renderWorkStatusOptions(articleState.status || "not_started")}
           </select>
         </td>
         <td class="row-comment">
@@ -490,6 +698,7 @@ function renderArticles() {
     `;
   }).join("");
 }
+
 
 function renderActions() {
   if (!state.actions.length) {
@@ -916,9 +1125,15 @@ function getLocalReports() {
   }
 }
 
+
 function applySavedReport(report, { keepContext = false } = {}) {
   if (!keepContext) {
     if (report.managerName && state.planData.managers[report.managerName]) {
+      const manager = state.planData.managers[report.managerName];
+      const channel = getManagerChannel(manager);
+      state.currentChannel = channel;
+      els.channelFilter.value = channel;
+      hydrateManagers({ preserveManager: false });
       els.managerSelect.value = report.managerName;
     }
     if (report.reportDate) {
@@ -975,6 +1190,7 @@ function applySavedReport(report, { keepContext = false } = {}) {
     : [makeEmptyAction()];
 }
 
+
 function serializeCurrentReport() {
   const totals = state.packMeta ? state.packMeta.totalPlan : { orders: 0, margin: 0, revenue: 0 };
 
@@ -982,7 +1198,7 @@ function serializeCurrentReport() {
     id: state.currentReportId || (state.currentReportId = cryptoRandomId()),
     reportDate: els.reportDate.value,
     managerName: state.managerKey,
-    channel: state.managerData?.channel || "",
+    channel: getManagerChannel(state.managerData) || "",
     role: state.managerData?.role || "marketplaceManager",
     department: els.department.value || "",
     overallStatus: els.overallStatus.value || "green",
@@ -1014,23 +1230,24 @@ function serializeCurrentReport() {
     articles: state.dailyPack.map((article) => {
       const key = getArticleKey(article);
       const row = state.articleStates[key] || {};
+      const merged = getMergedArticleView(article);
       return {
         key,
         wbArticle: article.wbArticle || "",
         sellerArticle: article.sellerArticle || "",
         name: article.name || "",
         statusSource: article.status || "",
-        priorityBucket: row.priorityBucket || "",
-        priorityReason: row.priorityReason || article.priorityReason || "",
-        managerTask: article.managerTask || "",
-        sourceComment: article.sourceComment || article.managerComment || "",
+        priorityBucket: row.priorityBucket || merged.priorityBucket || "",
+        priorityReason: row.priorityReason || merged.priorityReason || article.priorityReason || "",
+        managerTask: row.managerTask || merged.managerTask || article.managerTask || "",
+        sourceComment: row.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "",
         planDailyOrders: roundTo2(row.dailyPlan?.orders || 0),
         planDailyMargin: roundTo2(row.dailyPlan?.margin || 0),
         planDailyRevenue: roundTo2(row.dailyPlan?.revenue || 0),
         factOrders: row.factOrders ?? "",
         factMargin: row.factMargin ?? "",
         factRevenue: row.factRevenue ?? "",
-        status: row.status || "",
+        status: row.status || "not_started",
         comment: row.comment || ""
       };
     }),
@@ -1039,9 +1256,11 @@ function serializeCurrentReport() {
   };
 }
 
+
 function getDraftKey() {
   return `${STORAGE_PREFIX}:draft:${state.managerKey}:${els.reportDate.value}`;
 }
+
 
 function getArticleFactTotals() {
   return Object.values(state.articleStates).reduce((acc, row) => {
@@ -1052,10 +1271,43 @@ function getArticleFactTotals() {
   }, { orders: 0, margin: 0, revenue: 0 });
 }
 
+function getArticleOverride(article) {
+  const managerName = state.managerKey;
+  const dateKey = els.reportDate ? els.reportDate.value : "";
+  const defaultByManager = state.overridesData?.defaultByManager?.[managerName] || {};
+  const dateManager = state.overridesData?.byDate?.[dateKey]?.[managerName] || {};
+  const candidates = [
+    String(article.wbArticle || "").trim(),
+    String(article.sellerArticle || "").trim(),
+    getArticleKey(article)
+  ].filter(Boolean);
+
+  for (const key of candidates) {
+    if (dateManager[key]) return dateManager[key];
+  }
+  for (const key of candidates) {
+    if (defaultByManager[key]) return defaultByManager[key];
+  }
+  return {};
+}
+
+function getMergedArticleView(article) {
+  const override = getArticleOverride(article);
+  return {
+    ...article,
+    ...override,
+    priorityBucket: override.priorityBucket || article.priorityBucket || "planned",
+    priorityReason: override.priorityReason || article.priorityReason || "",
+    managerTask: override.managerTask || article.managerTask || "",
+    sourceComment: override.sourceComment || article.sourceComment || article.managerComment || ""
+  };
+}
+
 function getPriorityScore(article, monthKey) {
   const metrics = getMonthMetrics(article, monthKey);
-  const bucketScore = article.priorityBucket === "critical" ? 3000000000000
-    : article.priorityBucket === "urgent" ? 2000000000000
+  const merged = getMergedArticleView(article);
+  const bucketScore = merged.priorityBucket === "critical" ? 3000000000000
+    : merged.priorityBucket === "urgent" ? 2000000000000
     : 1000000000000;
   return bucketScore + Number(metrics.marginIncome || metrics.revenue || metrics.orders || 0);
 }
@@ -1069,6 +1321,7 @@ function getMonthMetrics(article, monthKey) {
   if (earlier.length) return months[earlier[earlier.length - 1]];
   return keys.length ? months[keys[keys.length - 1]] : {};
 }
+
 
 function getCycleAnchorDate(date) {
   const configured = parseDateString(state.config.cycleAnchorDate || state.planData?.cycleAnchorDate || "");
@@ -1141,15 +1394,17 @@ function renderStatusOptions(selectedValue) {
   return values.map(([value, label]) => `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${label}</option>`).join("");
 }
 
+
 function renderWorkStatusOptions(selectedValue) {
+  const normalized = selectedValue || "not_started";
   const values = [
-    ["", "Не начато"],
+    ["not_started", "Не начато"],
     ["done", "Сделано"],
     ["in_progress", "В работе"],
     ["review", "Проверить повторно"],
     ["blocked", "Блокер"]
   ];
-  return values.map(([value, label]) => `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${label}</option>`).join("");
+  return values.map(([value, label]) => `<option value="${value}" ${normalized === value ? "selected" : ""}>${label}</option>`).join("");
 }
 
 function getPriorityBucket(index, total) {
@@ -1194,6 +1449,7 @@ function openSheet() {
   window.open(state.config.googleSheetUrl, "_blank", "noopener,noreferrer");
 }
 
+
 function downloadCurrentPackCsv() {
   if (!state.dailyPack.length) {
     showMessage("Для этой роли нет пакета артикулов на скачивание.", "warn");
@@ -1201,24 +1457,25 @@ function downloadCurrentPackCsv() {
   }
 
   const rows = [[
-    "Дата", "Сотрудник", "Канал", "Пакет", "Приоритет", "Причина приоритета", "Артикул", "SKU", "Товар", "Что сделать сегодня", "Комментарий из файла", "План заказов/день", "План маржи/день", "План выручки/день"
+    "Дата", "Площадка", "Сотрудник", "Пакет", "Приоритет", "Причина приоритета", "Артикул", "SKU", "Товар", "Что сделать сегодня", "Комментарий из анализа", "План заказов/день", "План маржи/день", "План выручки/день"
   ]];
 
   state.dailyPack.forEach((article) => {
     const key = getArticleKey(article);
     const row = state.articleStates[key] || {};
+    const merged = getMergedArticleView(article);
     rows.push([
       els.reportDate.value,
+      getManagerChannel(state.managerData) || "",
       state.managerKey,
-      state.managerData?.channel || "",
       `${state.packMeta?.packNo || 1}/${state.packMeta?.packCount || 1}`,
-      getPriorityLabel(row.priorityBucket),
-      row.priorityReason || article.priorityReason || "",
+      getPriorityLabel(row.priorityBucket || merged.priorityBucket || "planned"),
+      row.priorityReason || merged.priorityReason || article.priorityReason || "",
       article.wbArticle || "",
       article.sellerArticle || "",
       article.name || "",
-      article.managerTask || "",
-      article.sourceComment || article.managerComment || "",
+      row.managerTask || merged.managerTask || article.managerTask || "",
+      row.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "",
       roundTo2(row.dailyPlan?.orders || 0),
       roundTo2(row.dailyPlan?.margin || 0),
       roundTo2(row.dailyPlan?.revenue || 0)
@@ -1229,6 +1486,7 @@ function downloadCurrentPackCsv() {
   const safeName = slugify(`${state.managerKey}-${els.reportDate.value}`) || "pack";
   downloadText(`pack-${safeName}.csv`, csv, "text/csv;charset=utf-8");
 }
+
 
 function csvEscape(value) {
   const text = String(value ?? "");

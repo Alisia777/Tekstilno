@@ -136,3 +136,11 @@ input[readonly],textarea[readonly]{background:#f8faff}
 .work-title{font-weight:700;line-height:1.4}
 .source-comment{margin-top:8px;white-space:pre-line}
 .priority-reason{margin-top:8px}
+
+
+.article-filters{display:grid;grid-template-columns:220px 240px minmax(260px,1fr);gap:14px;margin-bottom:16px}
+.history-channel{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;background:#f4f6fb;border:1px solid var(--line);font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px}
+.info-card{padding:14px 16px;border:1px solid var(--line);border-radius:16px;background:#fbfcff}
+@media (max-width: 900px){
+  .article-filters{grid-template-columns:1fr}
+}

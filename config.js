@@ -1,5 +1,6 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
+  siteVersion: "v6-2026-04-01",
   appsScriptUrl: "",
   googleSheetUrl: "",
   packSize: 20,
@@ -7,5 +8,6 @@ window.APP_CONFIG = {
   clearAfterSubmit: false,
   maxLocalReports: 40,
   planDataUrl: "data/article-plan.json",
-  tasksDataUrl: "data/daily-tasks.json"
+  tasksDataUrl: "data/daily-tasks.json",
+  overridesDataUrl: "data/daily-article-overrides.json"
 };
