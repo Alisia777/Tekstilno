@@ -1,20 +1,14 @@
 window.APP_CONFIG = {
-  // Название компании / команды в шапке
   organizationName: "Текстильно",
-
-  // URL Apps Script вида https://script.google.com/macros/s/.../exec
+  staticDataUrl: "data/daily-data.json",
+  // Вставьте URL Apps Script вида https://script.google.com/macros/s/.../exec
   appsScriptUrl: "",
-
-  // Приватная или рабочая ссылка на Google Sheet для руководителя
+  // Рабочая ссылка на таблицу руководителя
   googleSheetUrl: "",
-
-  // Необязательно. Только если хотите встроить публичную read-only таблицу на сайт.
-  // ВНИМАНИЕ: если вы публикуете таблицу в веб, данные становятся доступными по публичной ссылке.
-  googleSheetEmbedUrl: "",
-
-  // Очистить текстовые поля после успешной отправки
-  clearAfterSubmit: true,
-
-  // Сколько локальных отчётов хранить в браузере
-  maxLocalReports: 40
+  // Автоочистка после отправки в Google Sheet
+  clearAfterRemoteSubmit: false,
+  // Сколько отчётов хранить локально
+  maxLocalReports: 80,
+  // Префикс localStorage
+  storagePrefix: "textilno_manager_journal_v2"
 };

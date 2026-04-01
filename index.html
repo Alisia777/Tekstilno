@@ -3,272 +3,392 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ежедневные отчёты менеджеров</title>
-  <meta name="description" content="Статический сайт для ежедневных отчётов менеджеров на GitHub Pages." />
+  <title>Тетрадь менеджера — ежедневная отчётность</title>
+  <meta name="description" content="Сайт для ежедневной отчётности менеджеров: задачи на день, тетрадь действий, план/факт по марже и заказам." />
   <link rel="stylesheet" href="styles.css" />
-  <script src="config.js"></script>
 </head>
 <body>
-  <div class="page-shell">
+  <div class="app-shell">
     <header class="hero">
       <div class="hero-copy">
-        <span class="eyebrow">GitHub Pages + Google Sheets</span>
-        <h1 id="siteTitle">Ежедневные отчёты менеджеров</h1>
+        <span class="eyebrow">Текстильно · GitHub Pages</span>
+        <h1 id="siteTitle">Тетрадь менеджера</h1>
         <p class="lead">
-          Лёгкий сайт для запуска уже завтра: менеджер заполняет HTML-форму, отчёт уходит в Google Sheet,
-          руководитель открывает общую таблицу.
+          Менеджер видит задачи на день, отмечает статус выполнения, ведёт журнал действий и сдаёт факт по плану.
         </p>
         <div class="hero-actions">
-          <a href="#reportSection" class="btn btn-primary">Заполнить отчёт</a>
-          <button type="button" class="btn btn-secondary" id="openSheetTopBtn">Открыть таблицу</button>
+          <button type="button" class="btn btn-primary" data-cmd="save-draft">Сохранить черновик</button>
+          <button type="button" class="btn btn-secondary" data-cmd="fill-last">Заполнить вчерашним</button>
+          <button type="button" class="btn btn-secondary" data-cmd="open-sheet">Открыть таблицу руководителя</button>
         </div>
       </div>
 
       <div class="hero-card">
-        <div class="hero-stat">
-          <span class="stat-label">Режим</span>
-          <strong id="modeBadge" class="mode-badge">Демо</strong>
+        <div class="hero-status">
+          <span>Источник задач</span>
+          <strong id="dataSourceBadge">не загружен</strong>
         </div>
-        <div class="hero-grid">
-          <div>
-            <span>Форма</span>
-            <strong id="endpointStatusText">не подключена</strong>
-          </div>
-          <div>
-            <span>Таблица</span>
-            <strong id="sheetStatusText">не указана</strong>
-          </div>
-          <div>
-            <span>Личные ссылки</span>
-            <strong>готово</strong>
-          </div>
-          <div>
-            <span>Хранение</span>
-            <strong>localStorage + Google Sheet</strong>
-          </div>
+        <div class="hero-status">
+          <span>План</span>
+          <strong id="planSourceBadge">ожидает данные</strong>
+        </div>
+        <div class="hero-status">
+          <span>Отправка</span>
+          <strong id="submitSourceBadge">только локально</strong>
+        </div>
+        <div class="hero-status">
+          <span>Автосохранение</span>
+          <strong id="autosaveBadge">включено</strong>
         </div>
         <p class="muted">
-          Для боевого режима заполните <code>config.js</code> и разверните Apps Script из папки <code>apps-script</code>.
+          Это уже не просто форма. Здесь есть слой задач, тетрадь действий, факт по цифрам и готовая отправка в Google Sheet.
         </p>
       </div>
     </header>
 
-    <section id="setupBanner" class="banner hidden" aria-live="polite"></section>
-
-    <section class="status-strip">
-      <article class="status-card">
-        <span class="status-label">Подключение формы</span>
-        <strong id="statusEndpoint">Ожидает настройку</strong>
-        <p class="status-note">Когда укажете URL Apps Script, кнопка отправки начнёт писать отчёты в таблицу.</p>
-      </article>
-      <article class="status-card">
-        <span class="status-label">Таблица руководителя</span>
-        <strong id="statusSheet">Ожидает ссылку</strong>
-        <p class="status-note">Можно хранить данные в приватной Google Sheet и просто открыть её по кнопке.</p>
-      </article>
-      <article class="status-card">
-        <span class="status-label">Персональная ссылка менеджера</span>
-        <strong id="statusLink">Готово</strong>
-        <p class="status-note">Ссылки с параметрами подставляют имя и отдел автоматически.</p>
-      </article>
-    </section>
-
-    <div class="main-layout">
-      <main class="main-column">
-        <section class="panel" id="reportSection">
-          <div class="panel-head">
-            <div>
-              <h2>Форма ежедневного отчёта</h2>
-              <p>Оставил универсальную структуру. Поля можно быстро поменять под ваш реальный шаблон.</p>
-            </div>
-            <div class="progress-box">
-              <span>Заполненность</span>
-              <div class="progress-line"><div id="progressFill" class="progress-fill"></div></div>
-              <strong id="progressText">0%</strong>
-            </div>
-          </div>
-
-          <form id="reportForm" class="report-form">
-            <div class="form-block">
-              <h3>Основное</h3>
-              <div class="grid cols-2">
-                <label class="field">
-                  <span>Дата отчёта</span>
-                  <input type="date" name="reportDate" id="reportDate" required />
-                </label>
-                <label class="field">
-                  <span>Смена / график</span>
-                  <input type="text" name="shift" id="shift" placeholder="Например: 09:00–18:00" />
-                </label>
-                <label class="field">
-                  <span>Имя менеджера</span>
-                  <input type="text" name="managerName" id="managerName" placeholder="Анна Смирнова" required />
-                </label>
-                <label class="field">
-                  <span>Отдел</span>
-                  <input type="text" name="department" id="department" placeholder="Продажи / Маркетплейсы / Клиенты" required />
-                </label>
-                <label class="field">
-                  <span>Приоритет дня</span>
-                  <input type="text" name="dayGoal" id="dayGoal" placeholder="Главная цель на сегодня" />
-                </label>
-                <label class="field">
-                  <span>Статус дня</span>
-                  <select name="status" id="status" required>
-                    <option value="green">Зелёный — всё по плану</option>
-                    <option value="yellow">Жёлтый — есть риски</option>
-                    <option value="red">Красный — нужна помощь</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-
-            <div class="form-block">
-              <h3>KPI и цифры</h3>
-              <div class="grid cols-3">
-                <label class="field">
-                  <span>Лиды</span>
-                  <input type="number" name="leads" min="0" step="1" placeholder="0" />
-                </label>
-                <label class="field">
-                  <span>Звонки</span>
-                  <input type="number" name="calls" min="0" step="1" placeholder="0" />
-                </label>
-                <label class="field">
-                  <span>Чаты / встречи</span>
-                  <input type="number" name="meetings" min="0" step="1" placeholder="0" />
-                </label>
-                <label class="field">
-                  <span>Заказы</span>
-                  <input type="number" name="orders" min="0" step="1" placeholder="0" />
-                </label>
-                <label class="field">
-                  <span>Выручка, ₽</span>
-                  <input type="number" name="revenue" min="0" step="0.01" placeholder="0" />
-                </label>
-                <label class="field">
-                  <span>Конверсия, %</span>
-                  <input type="number" name="conversion" min="0" step="0.1" placeholder="0" />
-                </label>
-              </div>
-            </div>
-
-            <div class="form-block">
-              <h3>Итоги дня</h3>
-              <div class="grid cols-1">
-                <label class="field">
-                  <span>Что было запланировано</span>
-                  <textarea name="plannedTasks" rows="4" placeholder="Что планировалось сделать за день"></textarea>
-                </label>
-                <label class="field">
-                  <span>Что выполнено</span>
-                  <textarea name="completedTasks" rows="5" placeholder="Что реально сделано"></textarea>
-                </label>
-                <label class="field">
-                  <span>Проблемы / блокеры</span>
-                  <textarea name="blockers" rows="4" placeholder="Что тормозило работу"></textarea>
-                </label>
-                <label class="field">
-                  <span>Какая помощь нужна</span>
-                  <textarea name="helpNeeded" rows="3" placeholder="Что нужно от руководителя / команды"></textarea>
-                </label>
-                <label class="field">
-                  <span>План на завтра</span>
-                  <textarea name="tomorrowPlan" rows="4" placeholder="Главные задачи на завтра"></textarea>
-                </label>
-                <label class="field">
-                  <span>Комментарий</span>
-                  <textarea name="comment" rows="3" placeholder="Любая дополнительная информация"></textarea>
-                </label>
-              </div>
-            </div>
-
-            <div class="actions-row">
-              <button type="button" class="btn btn-secondary" id="copyLastReportBtn">Заполнить как прошлый отчёт</button>
-              <button type="button" class="btn btn-secondary" id="copyLinkBtn">Скопировать личную ссылку</button>
-              <button type="button" class="btn btn-ghost" id="clearDraftBtn">Очистить черновик</button>
-              <button type="submit" class="btn btn-primary" id="submitBtn">Отправить отчёт</button>
-            </div>
-
-            <div id="formMessage" class="form-message hidden" aria-live="polite"></div>
-          </form>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head compact-head">
-            <div>
-              <h2>Последние отправки с этого устройства</h2>
-              <p>Это локальная история браузера. Она нужна для копирования и подстраховки, если интернет шалит.</p>
-            </div>
-            <div class="mini-actions">
-              <button type="button" class="btn btn-secondary small" id="exportLocalCsvBtn">CSV</button>
-              <button type="button" class="btn btn-secondary small" id="loadDemoBtn">Демо</button>
-            </div>
-          </div>
-          <div id="localReportsList" class="report-list empty-state">
-            Пока ничего нет. После первой отправки здесь появится локальная карточка отчёта.
-          </div>
-        </section>
-      </main>
-
-      <aside class="side-column">
-        <section class="panel compact-panel">
-          <h2>Руководителю</h2>
-          <p>Основной рабочий сценарий: сайт на GitHub Pages, сами данные — в Google Sheet.</p>
-          <div class="stack">
-            <button type="button" class="btn btn-primary wide" id="openSheetBtn">Открыть Google Sheet</button>
-            <button type="button" class="btn btn-secondary wide" id="openManagerLinkBtn">Открыть мою личную ссылку</button>
-          </div>
-
-          <div id="embedWrap" class="embed-wrap hidden">
-            <p class="embed-note">Включено публичное read-only встраивание таблицы.</p>
-            <iframe id="sheetEmbedFrame" title="Встроенная таблица отчётов"></iframe>
-          </div>
-        </section>
-
-        <section class="panel compact-panel">
-          <h2>Личная ссылка менеджера</h2>
-          <p>Можно выдать каждому свою ссылку, чтобы имя и отдел подставлялись автоматически.</p>
-          <label class="field">
-            <span>Ссылка</span>
-            <textarea id="managerLinkPreview" rows="5" readonly></textarea>
-          </label>
-          <p class="muted small-text">
-            Формат: <code>?manager=Анна&department=Продажи&shift=09:00-18:00</code>
-          </p>
-        </section>
-
-        <section class="panel compact-panel">
-          <h2>Как это работает</h2>
-          <ol class="steps">
-            <li>Вы выкладываете эти файлы в GitHub-репозиторий.</li>
-            <li>GitHub Pages публикует статический сайт.</li>
-            <li>HTML-форма отправляет POST в Apps Script.</li>
-            <li>Apps Script дописывает строку в Google Sheet.</li>
-            <li>Руководитель открывает таблицу по кнопке или встраивает её read-only.</li>
-          </ol>
-        </section>
-
-        <section class="panel compact-panel">
-          <h2>Что можно поменять за 5 минут</h2>
-          <ul class="tweak-list">
-            <li>поля формы и их обязательность;</li>
-            <li>название компании;</li>
-            <li>тексты кнопок и подсказок;</li>
-            <li>KPI под ваш отдел;</li>
-            <li>добавить логотип и фирменные цвета.</li>
-          </ul>
-        </section>
-      </aside>
+    <div class="banner-row">
+      <section id="statusBanner" class="banner" aria-live="polite">
+        Загружаю конфигурацию дня…
+      </section>
     </div>
+
+    <form id="reportForm" novalidate>
+      <div class="content-grid">
+        <main class="main-column">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Профиль дня</h2>
+                <p>Эти поля участвуют в подборе задач и плана на текущую дату.</p>
+              </div>
+              <div class="inline-actions">
+                <button type="button" class="btn btn-ghost" data-cmd="copy-link">Скопировать личную ссылку</button>
+                <button type="button" class="btn btn-ghost" data-cmd="reload-data">Обновить данные дня</button>
+              </div>
+            </div>
+
+            <div class="grid cols-4">
+              <label class="field">
+                <span>Дата отчёта</span>
+                <input type="date" id="reportDate" name="reportDate" required />
+              </label>
+
+              <label class="field">
+                <span>Имя менеджера</span>
+                <input type="text" id="managerName" name="managerName" placeholder="Например: Александра" required />
+              </label>
+
+              <label class="field">
+                <span>Отдел</span>
+                <input type="text" id="department" name="department" placeholder="Например: Маркетплейсы" required />
+              </label>
+
+              <label class="field">
+                <span>Направление</span>
+                <select id="channel" name="channel">
+                  <option value="">Не выбрано</option>
+                  <option value="Wildberries">Wildberries</option>
+                  <option value="Ozon">Ozon</option>
+                  <option value="Lamoda">Lamoda</option>
+                  <option value="Опт">Опт</option>
+                  <option value="Прочее">Прочее</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Смена / график</span>
+                <input type="text" id="shift" name="shift" placeholder="09:00–18:00" />
+              </label>
+
+              <label class="field">
+                <span>Фокус дня</span>
+                <input type="text" id="dayFocus" name="dayFocus" placeholder="Главный фокус на день" />
+              </label>
+
+              <label class="field">
+                <span>Статус дня</span>
+                <select id="overallStatus" name="overallStatus">
+                  <option value="green">Зелёный — всё в рамках плана</option>
+                  <option value="yellow">Жёлтый — есть риски / отклонения</option>
+                  <option value="red">Красный — нужна помощь / есть блокер</option>
+                </select>
+              </label>
+
+              <label class="field field-wide">
+                <span>Личная ссылка менеджера</span>
+                <textarea id="managerLinkPreview" rows="2" readonly></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>План и факт дня</h2>
+                <p>План можно подтянуть из файла дня. Если на сегодня плана нет, цифры можно вписать вручную.</p>
+              </div>
+              <div class="pill-row">
+                <span class="pill" id="tasksMatchBadge">задачи: —</span>
+                <span class="pill" id="planMatchBadge">план: —</span>
+              </div>
+            </div>
+
+            <div class="metrics-overview">
+              <article class="metric-card">
+                <span class="metric-title">Заказы</span>
+                <strong id="ordersHeadline">—</strong>
+                <small id="ordersSubline">План не загружен</small>
+              </article>
+              <article class="metric-card">
+                <span class="metric-title">Маржа</span>
+                <strong id="marginHeadline">—</strong>
+                <small id="marginSubline">План не загружен</small>
+              </article>
+              <article class="metric-card">
+                <span class="metric-title">Выручка</span>
+                <strong id="revenueHeadline">—</strong>
+                <small id="revenueSubline">План не загружен</small>
+              </article>
+            </div>
+
+            <div class="metric-grid">
+              <div class="metric-grid-head metric-grid-row">
+                <div>Показатель</div>
+                <div>План</div>
+                <div>Факт</div>
+                <div>Отклонение</div>
+              </div>
+
+              <div class="metric-grid-row">
+                <div class="metric-label">Заказы, шт</div>
+                <label class="metric-input">
+                  <input type="number" id="ordersPlan" name="ordersPlan" min="0" step="1" placeholder="0" />
+                </label>
+                <label class="metric-input">
+                  <input type="number" id="ordersFact" name="ordersFact" min="0" step="1" placeholder="0" />
+                </label>
+                <div id="ordersDeviation" class="metric-deviation">—</div>
+              </div>
+
+              <div class="metric-grid-row">
+                <div class="metric-label">Маржа, ₽</div>
+                <label class="metric-input">
+                  <input type="number" id="marginPlan" name="marginPlan" min="0" step="0.01" placeholder="0" />
+                </label>
+                <label class="metric-input">
+                  <input type="number" id="marginFact" name="marginFact" min="0" step="0.01" placeholder="0" />
+                </label>
+                <div id="marginDeviation" class="metric-deviation">—</div>
+              </div>
+
+              <div class="metric-grid-row">
+                <div class="metric-label">Выручка, ₽</div>
+                <label class="metric-input">
+                  <input type="number" id="revenuePlan" name="revenuePlan" min="0" step="0.01" placeholder="0" />
+                </label>
+                <label class="metric-input">
+                  <input type="number" id="revenueFact" name="revenueFact" min="0" step="0.01" placeholder="0" />
+                </label>
+                <div id="revenueDeviation" class="metric-deviation">—</div>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Комментарий по цифрам</span>
+              <textarea id="numbersComment" name="numbersComment" rows="3" placeholder="Почему есть отклонение, что влияет на цифры, какие действия предприняты"></textarea>
+            </label>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Задачи на сегодня</h2>
+                <p>Руководитель обновляет их ежедневно. Менеджер отмечает статус, добавляет комментарий и при необходимости заводит свою задачу.</p>
+              </div>
+              <div class="inline-actions">
+                <button type="button" class="btn btn-secondary" data-cmd="add-task">Добавить свою задачу</button>
+              </div>
+            </div>
+
+            <div id="tasksList" class="tasks-list">
+              <div class="empty-state">
+                На сегодня задачи ещё не загружены.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Тетрадь действий</h2>
+                <p>Фиксируйте ключевые действия за день: что именно сделали, какой получили результат и что следующий шаг.</p>
+              </div>
+              <div class="inline-actions">
+                <button type="button" class="btn btn-secondary" data-cmd="add-action">Добавить действие</button>
+              </div>
+            </div>
+
+            <div id="actionsList" class="actions-list">
+              <div class="empty-state">
+                Пока нет ни одного действия. Добавьте запись, чтобы менеджер вёл дневник работы прямо на сайте.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Итог дня</h2>
+                <p>Короткий и понятный блок, который руководитель сможет быстро прочитать в конце дня.</p>
+              </div>
+            </div>
+
+            <div class="grid cols-2">
+              <label class="field">
+                <span>Главный результат дня</span>
+                <textarea id="mainResult" name="mainResult" rows="3" placeholder="Ключевой итог дня в 1–2 предложениях"></textarea>
+              </label>
+
+              <label class="field">
+                <span>Что фактически сделано</span>
+                <textarea id="completedSummary" name="completedSummary" rows="3" placeholder="Что реально было сделано по задачам и вне задач"></textarea>
+              </label>
+
+              <label class="field">
+                <span>Блокеры / проблемы</span>
+                <textarea id="blockers" name="blockers" rows="3" placeholder="Что помешало выполнить часть задач"></textarea>
+              </label>
+
+              <label class="field">
+                <span>Какая помощь нужна</span>
+                <textarea id="helpNeeded" name="helpNeeded" rows="3" placeholder="Что нужно от руководителя или команды"></textarea>
+              </label>
+
+              <label class="field">
+                <span>План на завтра</span>
+                <textarea id="tomorrowPlan" name="tomorrowPlan" rows="3" placeholder="Ключевые задачи на следующий день"></textarea>
+              </label>
+
+              <label class="field">
+                <span>Риски / комментарий</span>
+                <textarea id="riskComment" name="riskComment" rows="3" placeholder="Риски по плану, остаткам, рекламе, карточкам, поставкам и т.д."></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Отправка отчёта</h2>
+                <p>Локальная копия сохраняется всегда. Если подключён Apps Script, отчёт уйдёт ещё и в общую Google Sheet.</p>
+              </div>
+            </div>
+
+            <div id="formMessage" class="form-message info">
+              Пока отчёт сохраняется локально. Для общей отправки укажите Apps Script URL в <code>config.js</code>.
+            </div>
+
+            <div class="submit-actions">
+              <button type="button" class="btn btn-secondary" data-cmd="save-draft">Сохранить черновик</button>
+              <button type="button" class="btn btn-secondary" data-cmd="fill-last">Заполнить вчерашним</button>
+              <button type="button" class="btn btn-ghost" data-cmd="export-current">Скачать JSON</button>
+              <button type="submit" class="btn btn-primary" id="submitBtn">Сдать отчёт</button>
+            </div>
+
+            <iframe title="Скрытая отправка отчёта" id="submitFrame" name="submitFrame" class="submit-frame"></iframe>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Локальная история</h2>
+                <p>Нужна как подстраховка, быстрый доступ к вчерашнему дню и как резерв, если интернет или Google Sheets подводят.</p>
+              </div>
+              <div class="inline-actions">
+                <button type="button" class="btn btn-ghost" data-cmd="export-history">Скачать CSV</button>
+              </div>
+            </div>
+
+            <div id="historyList" class="history-list">
+              <div class="empty-state">
+                Здесь появятся отправленные или сохранённые отчёты с этого устройства.
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <aside class="side-column">
+          <section class="panel sticky-panel">
+            <h2>Сводка дня</h2>
+            <div class="summary-stack">
+              <article class="summary-card">
+                <span>Выполнено задач</span>
+                <strong id="summaryTasks">0 / 0</strong>
+                <small id="summaryTasksNote">Нет задач на сегодня</small>
+              </article>
+
+              <article class="summary-card">
+                <span>Записей в тетради</span>
+                <strong id="summaryActions">0</strong>
+                <small>Чем подробнее журнал, тем проще понять загрузку</small>
+              </article>
+
+              <article class="summary-card">
+                <span>Отклонение по заказам</span>
+                <strong id="summaryOrdersDelta">—</strong>
+                <small>План против факта</small>
+              </article>
+
+              <article class="summary-card">
+                <span>Отклонение по марже</span>
+                <strong id="summaryMarginDelta">—</strong>
+                <small>План против факта</small>
+              </article>
+
+              <article class="summary-card">
+                <span>Последнее автосохранение</span>
+                <strong id="lastSavedAt">ещё не было</strong>
+                <small>Черновик хранится в браузере</small>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Что обновляется каждый день</h2>
+            <ul class="note-list">
+              <li>список задач менеджера на сегодня;</li>
+              <li>план по заказам, марже и выручке;</li>
+              <li>приоритеты, комментарии и ожидаемый результат по задачам.</li>
+            </ul>
+            <p class="muted">
+              Пока Google не развёрнут, всё это лежит в файле <code>data/daily-data.json</code> внутри репозитория.
+            </p>
+          </section>
+
+          <section class="panel">
+            <h2>Личная ссылка менеджера</h2>
+            <p>Выдайте каждому менеджеру свою ссылку, чтобы имя, отдел, направление и смена подставлялись автоматически.</p>
+            <label class="field">
+              <span>Ссылка</span>
+              <textarea id="sideManagerLinkPreview" rows="5" readonly></textarea>
+            </label>
+            <div class="inline-actions">
+              <button type="button" class="btn btn-secondary wide" data-cmd="copy-link">Скопировать ссылку</button>
+              <button type="button" class="btn btn-secondary wide" data-cmd="open-sheet">Открыть таблицу</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </form>
 
     <footer class="footer">
       <p>
-        Сделано под быстрый запуск. Позже можно перейти на авторизацию, роли и базу, но для старта этого уже достаточно.
+        Сделано как рабочий каркас под ежедневную отчётность: задачи, журнал действий, план/факт и отправка в Google Sheet.
       </p>
     </footer>
   </div>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
