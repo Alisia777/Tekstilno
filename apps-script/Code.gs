@@ -1,65 +1,40 @@
-/**
- * Backend для GitHub Pages -> Google Sheets.
- *
- * Как работает в этой версии:
- * 1) Фронт отправляет POST в скрытый iframe, чтобы не упираться в CORS.
- * 2) Скрипт принимает payloadJson, раскладывает данные в 3 листа:
- *    - DailyReports
- *    - TaskStatusLog
- *    - ManagerActionsLog
- * 3) В ответ возвращается простая HTML-страница с ALLOWALL, чтобы iframe не блокировался.
- *
- * Разворачивать как Web app:
- * - Execute as: Me
- * - Who has access: Anyone
- */
+const SPREADSHEET_ID = ""; // можно оставить пустым, если скрипт привязан к Google Sheet
 
-const SPREADSHEET_ID = ""; // Можно оставить пустым, если скрипт привязан к таблице
-
-const SHEET_NAMES = {
-  REPORTS: "DailyReports",
-  TASKS: "TaskStatusLog",
-  ACTIONS: "ManagerActionsLog"
+const SHEETS = {
+  reports: "ManagerReports",
+  tasks: "TaskStatuses",
+  articles: "ArticleFacts",
+  actions: "ActionJournal"
 };
 
 const REPORT_HEADERS = [
   "serverTimestamp",
   "reportId",
-  "mode",
   "reportDate",
   "managerName",
-  "department",
   "channel",
-  "shift",
-  "dayFocus",
+  "department",
   "overallStatus",
-  "ordersPlan",
-  "ordersFact",
-  "ordersDeviation",
-  "ordersDeviationPct",
-  "marginPlan",
-  "marginFact",
-  "marginDeviation",
-  "marginDeviationPct",
-  "revenuePlan",
-  "revenueFact",
-  "revenueDeviation",
-  "revenueDeviationPct",
+  "dayFocus",
+  "packNo",
+  "packCount",
+  "packSize",
+  "monthKey",
+  "planOrders",
+  "factOrders",
+  "planMargin",
+  "factMargin",
+  "planRevenue",
+  "factRevenue",
   "numbersComment",
-  "mainResult",
-  "completedSummary",
+  "doneSummary",
   "blockers",
   "helpNeeded",
-  "tomorrowPlan",
-  "riskComment",
-  "tasksDone",
-  "tasksTotal",
-  "actionsCount",
-  "currentPlanSource",
-  "currentTasksSource",
+  "tomorrowFocus",
+  "source",
+  "pageUrl",
   "submittedAtLocal",
   "timezone",
-  "pageUrl",
   "userAgent",
   "rawJson"
 ];
@@ -69,17 +44,32 @@ const TASK_HEADERS = [
   "reportId",
   "reportDate",
   "managerName",
-  "department",
-  "channel",
   "taskId",
-  "title",
-  "category",
-  "priority",
-  "note",
-  "expectedResult",
-  "status",
-  "comment",
-  "manual"
+  "taskTitle",
+  "taskType",
+  "taskStatus",
+  "taskComment"
+];
+
+const ARTICLE_HEADERS = [
+  "serverTimestamp",
+  "reportId",
+  "reportDate",
+  "managerName",
+  "channel",
+  "articleKey",
+  "wbArticle",
+  "sellerArticle",
+  "name",
+  "sourceStatus",
+  "planDailyOrders",
+  "planDailyMargin",
+  "planDailyRevenue",
+  "factOrders",
+  "factMargin",
+  "factRevenue",
+  "workStatus",
+  "comment"
 ];
 
 const ACTION_HEADERS = [
@@ -87,19 +77,23 @@ const ACTION_HEADERS = [
   "reportId",
   "reportDate",
   "managerName",
-  "department",
-  "channel",
   "actionId",
   "time",
-  "type",
-  "linkedTaskId",
-  "description",
+  "articleKey",
+  "action",
   "result",
-  "nextStep"
+  "nextStep",
+  "comment"
 ];
 
 function doGet() {
-  return buildHtmlResponse_(true, "Manager journal endpoint is alive");
+  return ContentService
+    .createTextOutput(JSON.stringify({
+      ok: true,
+      service: "manager-journal-site-v3",
+      timestamp: new Date().toISOString()
+    }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 function doPost(e) {
@@ -108,21 +102,108 @@ function doPost(e) {
   try {
     lock.waitLock(10000);
 
-    const payload = parsePayload_(e);
-    validatePayload_(payload);
-
+    const payload = normalizePayload_(e);
     const spreadsheet = getSpreadsheet_();
-    const reportsSheet = getOrCreateSheet_(spreadsheet, SHEET_NAMES.REPORTS, REPORT_HEADERS);
-    const tasksSheet = getOrCreateSheet_(spreadsheet, SHEET_NAMES.TASKS, TASK_HEADERS);
-    const actionsSheet = getOrCreateSheet_(spreadsheet, SHEET_NAMES.ACTIONS, ACTION_HEADERS);
 
-    appendReportRow_(reportsSheet, payload);
-    appendTaskRows_(tasksSheet, payload);
-    appendActionRows_(actionsSheet, payload);
+    const reportsSheet = getOrCreateSheet_(spreadsheet, SHEETS.reports, REPORT_HEADERS);
+    const tasksSheet = getOrCreateSheet_(spreadsheet, SHEETS.tasks, TASK_HEADERS);
+    const articlesSheet = getOrCreateSheet_(spreadsheet, SHEETS.articles, ARTICLE_HEADERS);
+    const actionsSheet = getOrCreateSheet_(spreadsheet, SHEETS.actions, ACTION_HEADERS);
 
-    return buildHtmlResponse_(true, `Saved ${payload.reportId}`);
+    const timestamp = new Date();
+
+    reportsSheet.appendRow([
+      timestamp,
+      payload.reportId,
+      payload.reportDate,
+      payload.managerName,
+      payload.channel,
+      payload.department,
+      payload.overallStatus,
+      payload.dayFocus,
+      payload.packNo,
+      payload.packCount,
+      payload.packSize,
+      payload.monthKey,
+      payload.planOrders,
+      payload.factOrders,
+      payload.planMargin,
+      payload.factMargin,
+      payload.planRevenue,
+      payload.factRevenue,
+      payload.numbersComment,
+      payload.doneSummary,
+      payload.blockers,
+      payload.helpNeeded,
+      payload.tomorrowFocus,
+      payload.source,
+      payload.pageUrl,
+      payload.submittedAtLocal,
+      payload.timezone,
+      payload.userAgent,
+      payload.rawJson
+    ]);
+
+    payload.tasks.forEach(function(task) {
+      tasksSheet.appendRow([
+        timestamp,
+        payload.reportId,
+        payload.reportDate,
+        payload.managerName,
+        task.id || "",
+        task.title || "",
+        task.type || "",
+        task.status || "",
+        task.comment || ""
+      ]);
+    });
+
+    payload.articles.forEach(function(article) {
+      articlesSheet.appendRow([
+        timestamp,
+        payload.reportId,
+        payload.reportDate,
+        payload.managerName,
+        payload.channel,
+        article.key || "",
+        article.wbArticle || "",
+        article.sellerArticle || "",
+        article.name || "",
+        article.statusSource || "",
+        article.planDailyOrders || "",
+        article.planDailyMargin || "",
+        article.planDailyRevenue || "",
+        article.factOrders || "",
+        article.factMargin || "",
+        article.factRevenue || "",
+        article.status || "",
+        article.comment || ""
+      ]);
+    });
+
+    payload.actions.forEach(function(action) {
+      actionsSheet.appendRow([
+        timestamp,
+        payload.reportId,
+        payload.reportDate,
+        payload.managerName,
+        action.id || "",
+        action.time || "",
+        action.articleKey || "",
+        action.action || "",
+        action.result || "",
+        action.nextStep || "",
+        action.comment || ""
+      ]);
+    });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true, reportId: payload.reportId }))
+      .setMimeType(ContentService.MimeType.JSON);
   } catch (error) {
-    return buildHtmlResponse_(false, String(error));
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(error) }))
+      .setMimeType(ContentService.MimeType.JSON);
   } finally {
     try {
       lock.releaseLock();
@@ -130,211 +211,69 @@ function doPost(e) {
   }
 }
 
-function parsePayload_(e) {
-  const params = (e && e.parameter) ? e.parameter : {};
-  if (params.payloadJson) {
-    return JSON.parse(params.payloadJson);
-  }
+function normalizePayload_(e) {
+  const p = (e && e.parameter) ? e.parameter : {};
 
-  if (e && e.postData && e.postData.contents) {
-    const contents = e.postData.contents;
-    if (contents && contents.trim().charAt(0) === "{") {
-      return JSON.parse(contents);
-    }
-  }
-
-  throw new Error("payloadJson не найден");
+  return {
+    reportId: p.reportId || Utilities.getUuid(),
+    reportDate: p.reportDate || "",
+    managerName: p.managerName || "",
+    channel: p.channel || "",
+    department: p.department || "",
+    overallStatus: p.overallStatus || "",
+    dayFocus: p.dayFocus || "",
+    packNo: p.packNo || "",
+    packCount: p.packCount || "",
+    packSize: p.packSize || "",
+    monthKey: p.monthKey || "",
+    planOrders: p.planOrders || "",
+    factOrders: p.factOrders || "",
+    planMargin: p.planMargin || "",
+    factMargin: p.factMargin || "",
+    planRevenue: p.planRevenue || "",
+    factRevenue: p.factRevenue || "",
+    numbersComment: p.numbersComment || "",
+    doneSummary: p.doneSummary || "",
+    blockers: p.blockers || "",
+    helpNeeded: p.helpNeeded || "",
+    tomorrowFocus: p.tomorrowFocus || "",
+    tasks: parseJsonSafe_(p.tasksJson, []),
+    articles: parseJsonSafe_(p.articleFactsJson, []),
+    actions: parseJsonSafe_(p.actionJournalJson, []),
+    source: p.source || "github-pages",
+    pageUrl: p.pageUrl || "",
+    submittedAtLocal: p.submittedAtLocal || "",
+    timezone: p.timezone || "",
+    userAgent: p.userAgent || "",
+    rawJson: p.rawJson || ""
+  };
 }
 
-function validatePayload_(payload) {
-  if (!payload || typeof payload !== "object") {
-    throw new Error("Пустой payload");
-  }
-
-  if (!payload.reportDate) {
-    throw new Error("Не передана reportDate");
-  }
-
-  if (!payload.managerName) {
-    throw new Error("Не передан managerName");
-  }
-
-  if (!payload.department) {
-    throw new Error("Не передан department");
-  }
-
-  if (!payload.reportId) {
-    payload.reportId = Utilities.getUuid();
+function parseJsonSafe_(value, fallback) {
+  if (!value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (error) {
+    return fallback;
   }
 }
 
 function getSpreadsheet_() {
-  if (SPREADSHEET_ID) {
-    return SpreadsheetApp.openById(SPREADSHEET_ID);
-  }
-
-  const active = SpreadsheetApp.getActiveSpreadsheet();
-  if (!active) {
-    throw new Error("Не удалось открыть таблицу. Укажите SPREADSHEET_ID или привяжите скрипт к Google Sheet.");
-  }
-  return active;
+  return SPREADSHEET_ID
+    ? SpreadsheetApp.openById(SPREADSHEET_ID)
+    : SpreadsheetApp.getActiveSpreadsheet();
 }
 
-function getOrCreateSheet_(spreadsheet, sheetName, headers) {
-  const sheet = spreadsheet.getSheetByName(sheetName) || spreadsheet.insertSheet(sheetName);
-  ensureHeaders_(sheet, headers);
+function getOrCreateSheet_(spreadsheet, name, headers) {
+  const sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+    sheet.autoResizeColumns(1, headers.length);
+  }
+
   return sheet;
-}
-
-function ensureHeaders_(sheet, headers) {
-  if (sheet.getLastRow() > 0) {
-    return;
-  }
-
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  sheet.setFrozenRows(1);
-  sheet.getRange(1, 1, 1, headers.length)
-    .setFontWeight("bold")
-    .setBackground("#eaf0ff");
-  sheet.autoResizeColumns(1, headers.length);
-}
-
-function appendReportRow_(sheet, payload) {
-  const timestamp = new Date();
-  const kpis = payload.kpis || {};
-  const orders = kpis.orders || {};
-  const margin = kpis.margin || {};
-  const revenue = kpis.revenue || {};
-  const summary = payload.summary || {};
-  const counters = payload.counters || {};
-  const context = payload.context || {};
-  const meta = payload.meta || {};
-
-  const row = [
-    timestamp,
-    payload.reportId || "",
-    payload.mode || "",
-    payload.reportDate || "",
-    payload.managerName || "",
-    payload.department || "",
-    payload.channel || "",
-    payload.shift || "",
-    payload.dayFocus || "",
-    payload.overallStatus || "",
-    nullable_(orders.plan),
-    nullable_(orders.fact),
-    nullable_(orders.deviation),
-    nullable_(orders.deviationPct),
-    nullable_(margin.plan),
-    nullable_(margin.fact),
-    nullable_(margin.deviation),
-    nullable_(margin.deviationPct),
-    nullable_(revenue.plan),
-    nullable_(revenue.fact),
-    nullable_(revenue.deviation),
-    nullable_(revenue.deviationPct),
-    kpis.numbersComment || "",
-    summary.mainResult || "",
-    summary.completedSummary || "",
-    summary.blockers || "",
-    summary.helpNeeded || "",
-    summary.tomorrowPlan || "",
-    summary.riskComment || "",
-    nullable_(counters.tasksDone),
-    nullable_(counters.tasksTotal),
-    nullable_(counters.actionsCount),
-    context.currentPlanSource || "",
-    context.currentTasksSource || "",
-    meta.submittedAtLocal || "",
-    meta.timezone || "",
-    meta.pageUrl || "",
-    meta.userAgent || "",
-    JSON.stringify(payload)
-  ];
-
-  sheet.appendRow(row);
-}
-
-function appendTaskRows_(sheet, payload) {
-  const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
-  if (!tasks.length) {
-    return;
-  }
-
-  const timestamp = new Date();
-  const rows = tasks.map((task) => [
-    timestamp,
-    payload.reportId || "",
-    payload.reportDate || "",
-    payload.managerName || "",
-    payload.department || "",
-    payload.channel || "",
-    task.taskId || "",
-    task.title || "",
-    task.category || "",
-    task.priority || "",
-    task.note || "",
-    task.expectedResult || "",
-    task.status || "",
-    task.comment || "",
-    Boolean(task.manual)
-  ]);
-
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, TASK_HEADERS.length).setValues(rows);
-}
-
-function appendActionRows_(sheet, payload) {
-  const actions = Array.isArray(payload.actions) ? payload.actions : [];
-  if (!actions.length) {
-    return;
-  }
-
-  const timestamp = new Date();
-  const rows = actions.map((action) => [
-    timestamp,
-    payload.reportId || "",
-    payload.reportDate || "",
-    payload.managerName || "",
-    payload.department || "",
-    payload.channel || "",
-    action.actionId || "",
-    action.time || "",
-    action.type || "",
-    action.linkedTaskId || "",
-    action.description || "",
-    action.result || "",
-    action.nextStep || ""
-  ]);
-
-  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, ACTION_HEADERS.length).setValues(rows);
-}
-
-function buildHtmlResponse_(ok, message) {
-  const color = ok ? "#0e8f5b" : "#cc3b3b";
-  const status = ok ? "OK" : "ERROR";
-  const html = HtmlService.createHtmlOutput(`
-    <!DOCTYPE html>
-    <html>
-      <body style="font-family:Arial,sans-serif;padding:24px;color:#182230;">
-        <div style="max-width:520px;margin:0 auto;border:1px solid #d8dfeb;border-radius:16px;padding:20px;">
-          <div style="font-weight:700;color:${color};margin-bottom:8px;">${status}</div>
-          <div>${escapeHtml_(message)}</div>
-        </div>
-      </body>
-    </html>
-  `);
-  html.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  return html;
-}
-
-function nullable_(value) {
-  return value === null || value === undefined ? "" : value;
-}
-
-function escapeHtml_(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

@@ -3,392 +3,333 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Тетрадь менеджера — ежедневная отчётность</title>
-  <meta name="description" content="Сайт для ежедневной отчётности менеджеров: задачи на день, тетрадь действий, план/факт по марже и заказам." />
+  <title>Тетрадь менеджера по артикулам</title>
+  <meta name="description" content="Сайт менеджера: задачи на день, 20 артикулов в работу, тетрадь действий, план/факт по заказам и марже." />
   <link rel="stylesheet" href="styles.css" />
+  <script src="config.js"></script>
 </head>
 <body>
-  <div class="app-shell">
+  <div class="page-shell">
     <header class="hero">
       <div class="hero-copy">
         <span class="eyebrow">Текстильно · GitHub Pages</span>
-        <h1 id="siteTitle">Тетрадь менеджера</h1>
+        <h1 id="siteTitle">Тетрадь менеджера по артикулам</h1>
         <p class="lead">
-          Менеджер видит задачи на день, отмечает статус выполнения, ведёт журнал действий и сдаёт факт по плану.
+          Менеджер получает пакет из 20 артикулов на день, видит задачи, ведёт тетрадь действий и сдаёт факт по заказам, марже и выручке.
         </p>
         <div class="hero-actions">
-          <button type="button" class="btn btn-primary" data-cmd="save-draft">Сохранить черновик</button>
-          <button type="button" class="btn btn-secondary" data-cmd="fill-last">Заполнить вчерашним</button>
-          <button type="button" class="btn btn-secondary" data-cmd="open-sheet">Открыть таблицу руководителя</button>
+          <button type="button" class="btn btn-primary" id="saveDraftBtnTop">Сохранить черновик</button>
+          <button type="button" class="btn btn-secondary" id="fillLastBtnTop">Заполнить прошлым</button>
+          <button type="button" class="btn btn-secondary" id="openSheetBtnTop">Открыть таблицу</button>
         </div>
       </div>
 
       <div class="hero-card">
         <div class="hero-status">
-          <span>Источник задач</span>
-          <strong id="dataSourceBadge">не загружен</strong>
+          <span>Данные плана</span>
+          <strong id="planStatusBadge">загрузка…</strong>
         </div>
         <div class="hero-status">
-          <span>План</span>
-          <strong id="planSourceBadge">ожидает данные</strong>
+          <span>Пакет в день</span>
+          <strong id="packStatusBadge">20 артикулов</strong>
         </div>
         <div class="hero-status">
-          <span>Отправка</span>
-          <strong id="submitSourceBadge">только локально</strong>
+          <span>Режим отправки</span>
+          <strong id="submitStatusBadge">локально</strong>
         </div>
         <div class="hero-status">
           <span>Автосохранение</span>
-          <strong id="autosaveBadge">включено</strong>
+          <strong>включено</strong>
         </div>
         <p class="muted">
-          Это уже не просто форма. Здесь есть слой задач, тетрадь действий, факт по цифрам и готовая отправка в Google Sheet.
+          План по артикулам уже подтянут в сайт. Пакет крутится по рабочим дням, а задачи можно обновлять отдельным JSON-файлом.
         </p>
       </div>
     </header>
 
-    <div class="banner-row">
-      <section id="statusBanner" class="banner" aria-live="polite">
-        Загружаю конфигурацию дня…
-      </section>
+    <section id="statusBanner" class="banner" aria-live="polite">Загружаю данные менеджеров…</section>
+
+    <div class="layout">
+      <main class="main-column">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Профиль дня</h2>
+              <p>Выберите менеджера и дату. Сайт сам подтянет нужные 20 артикулов и план на день.</p>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn btn-ghost" id="copyLinkBtn">Скопировать личную ссылку</button>
+              <button type="button" class="btn btn-ghost" id="reloadBtn">Обновить</button>
+            </div>
+          </div>
+
+          <div class="grid cols-4">
+            <label class="field">
+              <span>Дата отчёта</span>
+              <input type="date" id="reportDate" />
+            </label>
+
+            <label class="field">
+              <span>Менеджер</span>
+              <select id="managerSelect"></select>
+            </label>
+
+            <label class="field">
+              <span>Канал</span>
+              <input type="text" id="channel" readonly />
+            </label>
+
+            <label class="field">
+              <span>Отдел</span>
+              <input type="text" id="department" />
+            </label>
+
+            <label class="field">
+              <span>Фокус дня</span>
+              <input type="text" id="dayFocus" placeholder="Что главное на сегодня" />
+            </label>
+
+            <label class="field">
+              <span>Статус дня</span>
+              <select id="overallStatus">
+                <option value="green">Зелёный — идём по плану</option>
+                <option value="yellow">Жёлтый — есть риски</option>
+                <option value="red">Красный — нужна помощь</option>
+              </select>
+            </label>
+
+            <label class="field field-wide">
+              <span>Личная ссылка менеджера</span>
+              <textarea id="managerLinkPreview" rows="2" readonly></textarea>
+            </label>
+          </div>
+
+          <div class="badge-row">
+            <span class="badge" id="packBadge">Пакет —</span>
+            <span class="badge" id="articlesCountBadge">Артикулы —</span>
+            <span class="badge" id="sourceBadge">Источник —</span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>План и факт дня</h2>
+              <p>План на день считается автоматически по текущему пакету артикулов. Факт можно ввести руками или подтянуть из строк ниже.</p>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn btn-secondary" id="syncFactsBtn">Подтянуть факт из строк</button>
+            </div>
+          </div>
+
+          <div class="metrics-overview">
+            <article class="metric-card">
+              <span class="metric-title">Артикулов в работе</span>
+              <strong id="headlineArticles">—</strong>
+              <small id="headlineArticlesSub">Пакет не выбран</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-title">План заказов / день</span>
+              <strong id="headlineOrdersPlan">—</strong>
+              <small id="headlineOrdersSub">Сумма по пакету</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-title">План маржи / день</span>
+              <strong id="headlineMarginPlan">—</strong>
+              <small id="headlineMarginSub">Сумма по пакету</small>
+            </article>
+            <article class="metric-card">
+              <span class="metric-title">План выручки / день</span>
+              <strong id="headlineRevenuePlan">—</strong>
+              <small id="headlineRevenueSub">Сумма по пакету</small>
+            </article>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric-grid-head metric-grid-row">
+              <div>Показатель</div>
+              <div>План</div>
+              <div>Факт</div>
+              <div>Отклонение</div>
+            </div>
+
+            <div class="metric-grid-row">
+              <div class="metric-label">Заказы, шт</div>
+              <div id="ordersPlanCell" class="metric-display">—</div>
+              <label class="metric-input"><input type="number" id="ordersFact" min="0" step="0.01" placeholder="0" /></label>
+              <div id="ordersDeviation" class="metric-deviation">—</div>
+            </div>
+
+            <div class="metric-grid-row">
+              <div class="metric-label">Маржа, ₽</div>
+              <div id="marginPlanCell" class="metric-display">—</div>
+              <label class="metric-input"><input type="number" id="marginFact" min="0" step="0.01" placeholder="0" /></label>
+              <div id="marginDeviation" class="metric-deviation">—</div>
+            </div>
+
+            <div class="metric-grid-row">
+              <div class="metric-label">Выручка, ₽</div>
+              <div id="revenuePlanCell" class="metric-display">—</div>
+              <label class="metric-input"><input type="number" id="revenueFact" min="0" step="0.01" placeholder="0" /></label>
+              <div id="revenueDeviation" class="metric-deviation">—</div>
+            </div>
+          </div>
+
+          <div class="helper-line">
+            <span id="rowFactsHint">По строкам пока нет факта.</span>
+          </div>
+
+          <label class="field">
+            <span>Комментарий по цифрам</span>
+            <textarea id="numbersComment" rows="3" placeholder="Почему есть отклонение, что повлияло на маржу и заказы, какие действия были сделаны"></textarea>
+          </label>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Задачи на день</h2>
+              <p>Ежедневные задачи можно менять в файле <code>data/daily-tasks.json</code>. Менеджер здесь ставит статус и комментарий.</p>
+            </div>
+          </div>
+          <div id="tasksList" class="tasks-list">
+            <div class="empty-state">Задачи ещё не загружены.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>20 артикулов на день</h2>
+              <p>Пакет собирается автоматически по рабочему дню месяца. Приоритет — статьи с более высоким маржинальным вкладом в текущем месяце.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="articles-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Артикул</th>
+                  <th>Товар</th>
+                  <th>План на месяц</th>
+                  <th>План на день</th>
+                  <th>Факт заказов</th>
+                  <th>Факт маржи</th>
+                  <th>Статус</th>
+                  <th>Комментарий</th>
+                </tr>
+              </thead>
+              <tbody id="articlesBody">
+                <tr><td colspan="9" class="empty-state cell-empty">Пакет ещё не собран.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Тетрадь действий</h2>
+              <p>Здесь менеджер фиксирует реальные действия за день: что сделал, по какому артикулу, какой результат и что дальше.</p>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn btn-secondary" id="addActionBtn">Добавить действие</button>
+            </div>
+          </div>
+
+          <div id="actionsList" class="actions-list">
+            <div class="empty-state">Пока нет записей. Добавьте действие, чтобы вести тетрадь с сайта.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Итог дня</h2>
+              <p>Короткий итог для руководителя и для себя на завтра.</p>
+            </div>
+          </div>
+
+          <div class="grid cols-2">
+            <label class="field">
+              <span>Что сделал по сути</span>
+              <textarea id="doneSummary" rows="4" placeholder="Главные выполненные действия за день"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Блокеры / проблемы</span>
+              <textarea id="blockers" rows="4" placeholder="Что помешало выполнить план или задачи"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Какая помощь нужна</span>
+              <textarea id="helpNeeded" rows="4" placeholder="Что нужно от руководителя / команды"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Фокус на завтра</span>
+              <textarea id="tomorrowFocus" rows="4" placeholder="На что будет упор в следующий день"></textarea>
+            </label>
+          </div>
+
+          <div class="actions-row">
+            <button type="button" class="btn btn-secondary" id="saveDraftBtn">Сохранить черновик</button>
+            <button type="button" class="btn btn-secondary" id="fillLastBtn">Заполнить прошлым</button>
+            <button type="button" class="btn btn-ghost" id="clearDraftBtn">Очистить</button>
+            <button type="button" class="btn btn-secondary" id="exportJsonBtn">Экспорт JSON</button>
+            <button type="button" class="btn btn-primary" id="submitBtn">Сохранить отчёт</button>
+          </div>
+
+          <div id="formMessage" class="form-message hidden" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <aside class="side-column">
+        <section class="panel compact-panel">
+          <h2>Что уже подтянуто</h2>
+          <ul class="summary-list" id="managerSummaryList">
+            <li>Загрузка…</li>
+          </ul>
+        </section>
+
+        <section class="panel compact-panel">
+          <h2>Как считается пакет</h2>
+          <ol class="steps">
+            <li>Берётся список артикулов менеджера.</li>
+            <li>Для выбранного месяца они сортируются по маржинальному вкладу.</li>
+            <li>Список режется на пакеты по 20 артикулов.</li>
+            <li>Пакет меняется по рабочим дням.</li>
+            <li>План на день = план месяца / число рабочих дней месяца.</li>
+          </ol>
+        </section>
+
+        <section class="panel compact-panel">
+          <h2>Локальная история</h2>
+          <div id="localHistoryList" class="history-list">
+            <div class="empty-state">После сохранения отчётов здесь появится локальная история браузера.</div>
+          </div>
+        </section>
+
+        <section class="panel compact-panel">
+          <h2>Кнопки руководителя</h2>
+          <div class="stack">
+            <button type="button" class="btn btn-primary wide" id="openSheetBtn">Открыть Google Sheet</button>
+            <button type="button" class="btn btn-secondary wide" id="downloadPackBtn">Скачать пакет на 02.04.2026</button>
+          </div>
+          <p class="muted small-text">
+            Пока Google-скрипт не подключён, всё работает локально в браузере. Структура для выгрузки уже подготовлена.
+          </p>
+        </section>
+      </aside>
     </div>
 
-    <form id="reportForm" novalidate>
-      <div class="content-grid">
-        <main class="main-column">
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Профиль дня</h2>
-                <p>Эти поля участвуют в подборе задач и плана на текущую дату.</p>
-              </div>
-              <div class="inline-actions">
-                <button type="button" class="btn btn-ghost" data-cmd="copy-link">Скопировать личную ссылку</button>
-                <button type="button" class="btn btn-ghost" data-cmd="reload-data">Обновить данные дня</button>
-              </div>
-            </div>
-
-            <div class="grid cols-4">
-              <label class="field">
-                <span>Дата отчёта</span>
-                <input type="date" id="reportDate" name="reportDate" required />
-              </label>
-
-              <label class="field">
-                <span>Имя менеджера</span>
-                <input type="text" id="managerName" name="managerName" placeholder="Например: Александра" required />
-              </label>
-
-              <label class="field">
-                <span>Отдел</span>
-                <input type="text" id="department" name="department" placeholder="Например: Маркетплейсы" required />
-              </label>
-
-              <label class="field">
-                <span>Направление</span>
-                <select id="channel" name="channel">
-                  <option value="">Не выбрано</option>
-                  <option value="Wildberries">Wildberries</option>
-                  <option value="Ozon">Ozon</option>
-                  <option value="Lamoda">Lamoda</option>
-                  <option value="Опт">Опт</option>
-                  <option value="Прочее">Прочее</option>
-                </select>
-              </label>
-
-              <label class="field">
-                <span>Смена / график</span>
-                <input type="text" id="shift" name="shift" placeholder="09:00–18:00" />
-              </label>
-
-              <label class="field">
-                <span>Фокус дня</span>
-                <input type="text" id="dayFocus" name="dayFocus" placeholder="Главный фокус на день" />
-              </label>
-
-              <label class="field">
-                <span>Статус дня</span>
-                <select id="overallStatus" name="overallStatus">
-                  <option value="green">Зелёный — всё в рамках плана</option>
-                  <option value="yellow">Жёлтый — есть риски / отклонения</option>
-                  <option value="red">Красный — нужна помощь / есть блокер</option>
-                </select>
-              </label>
-
-              <label class="field field-wide">
-                <span>Личная ссылка менеджера</span>
-                <textarea id="managerLinkPreview" rows="2" readonly></textarea>
-              </label>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>План и факт дня</h2>
-                <p>План можно подтянуть из файла дня. Если на сегодня плана нет, цифры можно вписать вручную.</p>
-              </div>
-              <div class="pill-row">
-                <span class="pill" id="tasksMatchBadge">задачи: —</span>
-                <span class="pill" id="planMatchBadge">план: —</span>
-              </div>
-            </div>
-
-            <div class="metrics-overview">
-              <article class="metric-card">
-                <span class="metric-title">Заказы</span>
-                <strong id="ordersHeadline">—</strong>
-                <small id="ordersSubline">План не загружен</small>
-              </article>
-              <article class="metric-card">
-                <span class="metric-title">Маржа</span>
-                <strong id="marginHeadline">—</strong>
-                <small id="marginSubline">План не загружен</small>
-              </article>
-              <article class="metric-card">
-                <span class="metric-title">Выручка</span>
-                <strong id="revenueHeadline">—</strong>
-                <small id="revenueSubline">План не загружен</small>
-              </article>
-            </div>
-
-            <div class="metric-grid">
-              <div class="metric-grid-head metric-grid-row">
-                <div>Показатель</div>
-                <div>План</div>
-                <div>Факт</div>
-                <div>Отклонение</div>
-              </div>
-
-              <div class="metric-grid-row">
-                <div class="metric-label">Заказы, шт</div>
-                <label class="metric-input">
-                  <input type="number" id="ordersPlan" name="ordersPlan" min="0" step="1" placeholder="0" />
-                </label>
-                <label class="metric-input">
-                  <input type="number" id="ordersFact" name="ordersFact" min="0" step="1" placeholder="0" />
-                </label>
-                <div id="ordersDeviation" class="metric-deviation">—</div>
-              </div>
-
-              <div class="metric-grid-row">
-                <div class="metric-label">Маржа, ₽</div>
-                <label class="metric-input">
-                  <input type="number" id="marginPlan" name="marginPlan" min="0" step="0.01" placeholder="0" />
-                </label>
-                <label class="metric-input">
-                  <input type="number" id="marginFact" name="marginFact" min="0" step="0.01" placeholder="0" />
-                </label>
-                <div id="marginDeviation" class="metric-deviation">—</div>
-              </div>
-
-              <div class="metric-grid-row">
-                <div class="metric-label">Выручка, ₽</div>
-                <label class="metric-input">
-                  <input type="number" id="revenuePlan" name="revenuePlan" min="0" step="0.01" placeholder="0" />
-                </label>
-                <label class="metric-input">
-                  <input type="number" id="revenueFact" name="revenueFact" min="0" step="0.01" placeholder="0" />
-                </label>
-                <div id="revenueDeviation" class="metric-deviation">—</div>
-              </div>
-            </div>
-
-            <label class="field">
-              <span>Комментарий по цифрам</span>
-              <textarea id="numbersComment" name="numbersComment" rows="3" placeholder="Почему есть отклонение, что влияет на цифры, какие действия предприняты"></textarea>
-            </label>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Задачи на сегодня</h2>
-                <p>Руководитель обновляет их ежедневно. Менеджер отмечает статус, добавляет комментарий и при необходимости заводит свою задачу.</p>
-              </div>
-              <div class="inline-actions">
-                <button type="button" class="btn btn-secondary" data-cmd="add-task">Добавить свою задачу</button>
-              </div>
-            </div>
-
-            <div id="tasksList" class="tasks-list">
-              <div class="empty-state">
-                На сегодня задачи ещё не загружены.
-              </div>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Тетрадь действий</h2>
-                <p>Фиксируйте ключевые действия за день: что именно сделали, какой получили результат и что следующий шаг.</p>
-              </div>
-              <div class="inline-actions">
-                <button type="button" class="btn btn-secondary" data-cmd="add-action">Добавить действие</button>
-              </div>
-            </div>
-
-            <div id="actionsList" class="actions-list">
-              <div class="empty-state">
-                Пока нет ни одного действия. Добавьте запись, чтобы менеджер вёл дневник работы прямо на сайте.
-              </div>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Итог дня</h2>
-                <p>Короткий и понятный блок, который руководитель сможет быстро прочитать в конце дня.</p>
-              </div>
-            </div>
-
-            <div class="grid cols-2">
-              <label class="field">
-                <span>Главный результат дня</span>
-                <textarea id="mainResult" name="mainResult" rows="3" placeholder="Ключевой итог дня в 1–2 предложениях"></textarea>
-              </label>
-
-              <label class="field">
-                <span>Что фактически сделано</span>
-                <textarea id="completedSummary" name="completedSummary" rows="3" placeholder="Что реально было сделано по задачам и вне задач"></textarea>
-              </label>
-
-              <label class="field">
-                <span>Блокеры / проблемы</span>
-                <textarea id="blockers" name="blockers" rows="3" placeholder="Что помешало выполнить часть задач"></textarea>
-              </label>
-
-              <label class="field">
-                <span>Какая помощь нужна</span>
-                <textarea id="helpNeeded" name="helpNeeded" rows="3" placeholder="Что нужно от руководителя или команды"></textarea>
-              </label>
-
-              <label class="field">
-                <span>План на завтра</span>
-                <textarea id="tomorrowPlan" name="tomorrowPlan" rows="3" placeholder="Ключевые задачи на следующий день"></textarea>
-              </label>
-
-              <label class="field">
-                <span>Риски / комментарий</span>
-                <textarea id="riskComment" name="riskComment" rows="3" placeholder="Риски по плану, остаткам, рекламе, карточкам, поставкам и т.д."></textarea>
-              </label>
-            </div>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Отправка отчёта</h2>
-                <p>Локальная копия сохраняется всегда. Если подключён Apps Script, отчёт уйдёт ещё и в общую Google Sheet.</p>
-              </div>
-            </div>
-
-            <div id="formMessage" class="form-message info">
-              Пока отчёт сохраняется локально. Для общей отправки укажите Apps Script URL в <code>config.js</code>.
-            </div>
-
-            <div class="submit-actions">
-              <button type="button" class="btn btn-secondary" data-cmd="save-draft">Сохранить черновик</button>
-              <button type="button" class="btn btn-secondary" data-cmd="fill-last">Заполнить вчерашним</button>
-              <button type="button" class="btn btn-ghost" data-cmd="export-current">Скачать JSON</button>
-              <button type="submit" class="btn btn-primary" id="submitBtn">Сдать отчёт</button>
-            </div>
-
-            <iframe title="Скрытая отправка отчёта" id="submitFrame" name="submitFrame" class="submit-frame"></iframe>
-          </section>
-
-          <section class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Локальная история</h2>
-                <p>Нужна как подстраховка, быстрый доступ к вчерашнему дню и как резерв, если интернет или Google Sheets подводят.</p>
-              </div>
-              <div class="inline-actions">
-                <button type="button" class="btn btn-ghost" data-cmd="export-history">Скачать CSV</button>
-              </div>
-            </div>
-
-            <div id="historyList" class="history-list">
-              <div class="empty-state">
-                Здесь появятся отправленные или сохранённые отчёты с этого устройства.
-              </div>
-            </div>
-          </section>
-        </main>
-
-        <aside class="side-column">
-          <section class="panel sticky-panel">
-            <h2>Сводка дня</h2>
-            <div class="summary-stack">
-              <article class="summary-card">
-                <span>Выполнено задач</span>
-                <strong id="summaryTasks">0 / 0</strong>
-                <small id="summaryTasksNote">Нет задач на сегодня</small>
-              </article>
-
-              <article class="summary-card">
-                <span>Записей в тетради</span>
-                <strong id="summaryActions">0</strong>
-                <small>Чем подробнее журнал, тем проще понять загрузку</small>
-              </article>
-
-              <article class="summary-card">
-                <span>Отклонение по заказам</span>
-                <strong id="summaryOrdersDelta">—</strong>
-                <small>План против факта</small>
-              </article>
-
-              <article class="summary-card">
-                <span>Отклонение по марже</span>
-                <strong id="summaryMarginDelta">—</strong>
-                <small>План против факта</small>
-              </article>
-
-              <article class="summary-card">
-                <span>Последнее автосохранение</span>
-                <strong id="lastSavedAt">ещё не было</strong>
-                <small>Черновик хранится в браузере</small>
-              </article>
-            </div>
-          </section>
-
-          <section class="panel">
-            <h2>Что обновляется каждый день</h2>
-            <ul class="note-list">
-              <li>список задач менеджера на сегодня;</li>
-              <li>план по заказам, марже и выручке;</li>
-              <li>приоритеты, комментарии и ожидаемый результат по задачам.</li>
-            </ul>
-            <p class="muted">
-              Пока Google не развёрнут, всё это лежит в файле <code>data/daily-data.json</code> внутри репозитория.
-            </p>
-          </section>
-
-          <section class="panel">
-            <h2>Личная ссылка менеджера</h2>
-            <p>Выдайте каждому менеджеру свою ссылку, чтобы имя, отдел, направление и смена подставлялись автоматически.</p>
-            <label class="field">
-              <span>Ссылка</span>
-              <textarea id="sideManagerLinkPreview" rows="5" readonly></textarea>
-            </label>
-            <div class="inline-actions">
-              <button type="button" class="btn btn-secondary wide" data-cmd="copy-link">Скопировать ссылку</button>
-              <button type="button" class="btn btn-secondary wide" data-cmd="open-sheet">Открыть таблицу</button>
-            </div>
-          </section>
-        </aside>
-      </div>
-    </form>
-
     <footer class="footer">
-      <p>
-        Сделано как рабочий каркас под ежедневную отчётность: задачи, журнал действий, план/факт и отправка в Google Sheet.
-      </p>
+      <p>Эта версия уже заточена под ваш процесс: ежедневные задачи, пакет из 20 артикулов, тетрадь действий и план/факт по менеджеру.</p>
     </footer>
   </div>
 
-  <script src="config.js"></script>
+  <iframe id="submitFrame" name="submitFrame" class="hidden-frame"></iframe>
   <script src="app.js"></script>
 </body>
 </html>
