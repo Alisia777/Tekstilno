@@ -154,6 +154,17 @@ function getManagerChannel(manager) {
   if (manager.role === "supplyCoordinator") return "Поставки";
   return manager.channel || "";
 }
+function getPlatformArticleId(article) {
+  const channel = article.channel || state.managerData?.channel || "";
+  if (channel === "Ozon") return article.ozonArticle || article.wbArticle || "";
+  return article.wbArticle || article.ozonArticle || "";
+}
+
+function getPlatformArticleLabel(article) {
+  const channel = article.channel || state.managerData?.channel || "";
+  return channel === "Ozon" ? "Ozon артикул" : "WB артикул";
+}
+
 
 function getChannelOptions() {
   const managers = (state.planData && state.planData.managers) || {};
@@ -433,7 +444,7 @@ function buildPackForContext() {
       monthKey,
       anchorDate: formatDateInput(getCycleAnchorDate(reportDate)),
       totalPlan: { orders: 0, margin: 0, revenue: 0 },
-      bucketCounts: { critical: 0, urgent: 0, planned: 0 }
+      bucketCounts: { critical: 0, high: 0, medium: 0, low: 0 }
     };
     els.packBadge.textContent = "Пакет — не используется";
     els.articlesCountBadge.textContent = "Артикулы: 0";
@@ -491,7 +502,7 @@ function buildPackForContext() {
 
   state.dailyPack = dailyPack;
   const bucketCounts = Object.values(state.articleStates).reduce((acc, item) => {
-    const bucket = item.priorityBucket || "planned";
+    const bucket = item.priorityBucket || "low";
     acc[bucket] = (acc[bucket] || 0) + 1;
     return acc;
   }, {});
@@ -511,14 +522,16 @@ function buildPackForContext() {
   els.sourceBadge.textContent = `Источник: ${getManagerChannel(state.managerData)}`;
   if (els.priorityBadge) {
     const c = bucketCounts.critical || 0;
-    const u = bucketCounts.urgent || 0;
-    const p = bucketCounts.planned || 0;
-    els.priorityBadge.textContent = `Приоритеты: критично ${c} · срочно ${u} · планово ${p}`;
+    const h = bucketCounts.high || 0;
+    const m = bucketCounts.medium || 0;
+    const l = bucketCounts.low || 0;
+    els.priorityBadge.textContent = `Приоритеты: критично ${c} · высокий ${h} · средний ${m} · низкий ${l}`;
   }
 }
 
 
 function renderAll() {
+  updateArticleHeader();
   renderSummary();
   renderTasks();
   renderArticles();
@@ -527,6 +540,12 @@ function renderAll() {
   updateManagerLinkPreview();
   toggleRoleSections();
   updateSetupState();
+}
+
+function updateArticleHeader() {
+  const header = document.getElementById("articleIdHeader");
+  if (!header) return;
+  header.textContent = state.managerData?.channel === "Ozon" ? "Ozon артикул" : "WB артикул";
 }
 
 function renderSummary() {
@@ -592,7 +611,7 @@ function getFilteredPack() {
     const merged = getMergedArticleView(article);
     const effectiveStatus = row.status || "not_started";
 
-    if (priority !== "all" && (row.priorityBucket || merged.priorityBucket || "planned") !== priority) {
+    if (priority !== "all" && (row.priorityBucket || merged.priorityBucket || "low") !== priority) {
       return false;
     }
     if (status !== "all" && effectiveStatus !== status) {
@@ -600,7 +619,7 @@ function getFilteredPack() {
     }
     if (search) {
       const haystack = [
-        String(article.wbArticle || ""),
+        String(getPlatformArticleId(article) || ""),
         String(article.sellerArticle || ""),
         String(article.name || ""),
         String(merged.managerTask || ""),
@@ -647,14 +666,14 @@ function renderArticles() {
     const sourceComment = articleState.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "";
     const managerTask = articleState.managerTask || merged.managerTask || article.managerTask || "Проверить цену, рекламу, остатки и выполнить план дня по артикулу.";
     const priorityReason = articleState.priorityReason || merged.priorityReason || article.priorityReason || "";
-    const priorityBucket = articleState.priorityBucket || merged.priorityBucket || "planned";
+    const priorityBucket = articleState.priorityBucket || merged.priorityBucket || "low";
 
     return `
       <tr data-article-key="${escapeHtml(key)}">
         <td><strong>${articleState.priority || "—"}</strong></td>
         <td><span class="pill ${priorityBucket}">${getPriorityLabel(priorityBucket)}</span></td>
         <td>
-          <div class="product-title">${article.wbArticle ? escapeHtml(String(article.wbArticle)) : "—"}</div>
+          <div class="product-title">${getPlatformArticleId(article) ? escapeHtml(String(getPlatformArticleId(article))) : "—"}</div>
           <div class="product-meta">${escapeHtml(article.sellerArticle || "")}</div>
         </td>
         <td>
@@ -710,7 +729,7 @@ function renderActions() {
     const articleOptions = [`<option value="" ${!action.articleKey ? "selected" : ""}>Не привязано</option>`].concat(
       state.dailyPack.map((article) => {
         const key = getArticleKey(article);
-        const label = `${article.wbArticle || "—"} · ${article.name || article.sellerArticle || "артикул"}`;
+        const label = `${getPlatformArticleId(article) || "—"} · ${article.name || article.sellerArticle || "артикул"}`;
         return `<option value="${escapeAttribute(key)}" ${action.articleKey === key ? "selected" : ""}>${escapeHtml(label)}</option>`;
       })
     ).join("");
@@ -1234,6 +1253,8 @@ function serializeCurrentReport() {
       return {
         key,
         wbArticle: article.wbArticle || "",
+        ozonArticle: article.ozonArticle || "",
+        platformArticle: getPlatformArticleId(article) || "",
         sellerArticle: article.sellerArticle || "",
         name: article.name || "",
         statusSource: article.status || "",
@@ -1278,6 +1299,8 @@ function getArticleOverride(article) {
   const dateManager = state.overridesData?.byDate?.[dateKey]?.[managerName] || {};
   const candidates = [
     String(article.wbArticle || "").trim(),
+    String(article.ozonArticle || "").trim(),
+    String(getPlatformArticleId(article) || "").trim(),
     String(article.sellerArticle || "").trim(),
     getArticleKey(article)
   ].filter(Boolean);
@@ -1296,7 +1319,7 @@ function getMergedArticleView(article) {
   return {
     ...article,
     ...override,
-    priorityBucket: override.priorityBucket || article.priorityBucket || "planned",
+    priorityBucket: override.priorityBucket || article.priorityBucket || "low",
     priorityReason: override.priorityReason || article.priorityReason || "",
     managerTask: override.managerTask || article.managerTask || "",
     sourceComment: override.sourceComment || article.sourceComment || article.managerComment || ""
@@ -1307,8 +1330,9 @@ function getPriorityScore(article, monthKey) {
   const metrics = getMonthMetrics(article, monthKey);
   const merged = getMergedArticleView(article);
   const bucketScore = merged.priorityBucket === "critical" ? 3000000000000
-    : merged.priorityBucket === "urgent" ? 2000000000000
-    : 1000000000000;
+    : merged.priorityBucket === "high" ? 2000000000000
+    : merged.priorityBucket === "medium" ? 1000000000000
+    : 500000000000;
   return bucketScore + Number(metrics.marginIncome || metrics.revenue || metrics.orders || 0);
 }
 
@@ -1409,15 +1433,17 @@ function renderWorkStatusOptions(selectedValue) {
 
 function getPriorityBucket(index, total) {
   const ratio = total ? (index + 1) / total : 1;
-  if (ratio <= 0.25) return "critical";
-  if (ratio <= 0.6) return "urgent";
-  return "planned";
+  if (ratio <= 0.1) return "critical";
+  if (ratio <= 0.35) return "high";
+  if (ratio <= 0.7) return "medium";
+  return "low";
 }
 
 function getPriorityLabel(bucket) {
   if (bucket === "critical") return "Критично";
-  if (bucket === "urgent") return "Срочно";
-  return "Планово";
+  if (bucket === "high") return "Высокий";
+  if (bucket === "medium") return "Средний";
+  return "Низкий";
 }
 
 function updateDeviationCell(element, plan, fact) {
@@ -1469,9 +1495,9 @@ function downloadCurrentPackCsv() {
       getManagerChannel(state.managerData) || "",
       state.managerKey,
       `${state.packMeta?.packNo || 1}/${state.packMeta?.packCount || 1}`,
-      getPriorityLabel(row.priorityBucket || merged.priorityBucket || "planned"),
+      getPriorityLabel(row.priorityBucket || merged.priorityBucket || "low"),
       row.priorityReason || merged.priorityReason || article.priorityReason || "",
-      article.wbArticle || "",
+      getPlatformArticleId(article) || "",
       article.sellerArticle || "",
       article.name || "",
       row.managerTask || merged.managerTask || article.managerTask || "",
@@ -1596,5 +1622,5 @@ function slugify(value) {
 }
 
 function getArticleKey(article) {
-  return `${article.channel || state.managerData?.channel || ""}::${article.sellerArticle || article.wbArticle || article.name || "article"}`;
+  return `${article.channel || state.managerData?.channel || ""}::${article.sellerArticle || getPlatformArticleId(article) || article.name || "article"}`;
 }
