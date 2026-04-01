@@ -62,6 +62,10 @@ const ARTICLE_HEADERS = [
   "sellerArticle",
   "name",
   "sourceStatus",
+  "priorityBucket",
+  "priorityReason",
+  "managerTask",
+  "sourceComment",
   "planDailyOrders",
   "planDailyMargin",
   "planDailyRevenue",
@@ -90,7 +94,7 @@ function doGet() {
   return ContentService
     .createTextOutput(JSON.stringify({
       ok: true,
-      service: "manager-journal-site-v3",
+      service: "manager-journal-site-v5",
       timestamp: new Date().toISOString()
     }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -170,6 +174,10 @@ function doPost(e) {
         article.sellerArticle || "",
         article.name || "",
         article.statusSource || "",
+        article.priorityBucket || "",
+        article.priorityReason || "",
+        article.managerTask || "",
+        article.sourceComment || "",
         article.planDailyOrders || "",
         article.planDailyMargin || "",
         article.planDailyRevenue || "",
@@ -240,23 +248,13 @@ function normalizePayload_(e) {
     tasks: parseJsonSafe_(p.tasksJson, []),
     articles: parseJsonSafe_(p.articleFactsJson, []),
     actions: parseJsonSafe_(p.actionJournalJson, []),
-    source: p.source || "github-pages",
+    source: p.source || "",
     pageUrl: p.pageUrl || "",
     submittedAtLocal: p.submittedAtLocal || "",
     timezone: p.timezone || "",
     userAgent: p.userAgent || "",
     rawJson: p.rawJson || ""
   };
-}
-
-function parseJsonSafe_(value, fallback) {
-  if (!value) return fallback;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch (error) {
-    return fallback;
-  }
 }
 
 function getSpreadsheet_() {
@@ -266,14 +264,25 @@ function getSpreadsheet_() {
 }
 
 function getOrCreateSheet_(spreadsheet, name, headers) {
-  const sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
+  let sheet = spreadsheet.getSheetByName(name);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(name);
+  }
 
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(headers);
-    sheet.setFrozenRows(1);
+  const hasHeaders = sheet.getLastRow() > 0;
+  if (!hasHeaders) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-    sheet.autoResizeColumns(1, headers.length);
+    sheet.setFrozenRows(1);
   }
 
   return sheet;
+}
+
+function parseJsonSafe_(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch (error) {
+    return fallback;
+  }
 }

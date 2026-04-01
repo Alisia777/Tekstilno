@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Тетрадь менеджера по артикулам</title>
-  <meta name="description" content="Сайт менеджера: задачи на день, 20 артикулов в работу, тетрадь действий, план/факт по заказам и марже." />
+  <title>Тетрадь менеджеров и координатора</title>
+  <meta name="description" content="Сайт для ежедневной работы менеджеров WB/Ozon и координатора поставок: задачи на день, тетрадь действий, пакет артикулов и план/факт." />
   <link rel="stylesheet" href="styles.css" />
   <script src="config.js"></script>
 </head>
@@ -13,14 +13,14 @@
     <header class="hero">
       <div class="hero-copy">
         <span class="eyebrow">Текстильно · GitHub Pages</span>
-        <h1 id="siteTitle">Тетрадь менеджера по артикулам</h1>
+        <h1 id="siteTitle">Тетрадь менеджеров и координатора</h1>
         <p class="lead">
-          Менеджер получает пакет из 20 артикулов на день, видит задачи, ведёт тетрадь действий и сдаёт факт по заказам, марже и выручке.
+          WB и Ozon-менеджеры получают пакет артикулов на день, отмечают статусы, ведут тетрадь действий и сдают факт. Координатор поставок работает в том же журнале, но без пакета артикулов.
         </p>
         <div class="hero-actions">
           <button type="button" class="btn btn-primary" id="saveDraftBtnTop">Сохранить черновик</button>
           <button type="button" class="btn btn-secondary" id="fillLastBtnTop">Заполнить прошлым</button>
-          <button type="button" class="btn btn-secondary" id="openSheetBtnTop">Открыть таблицу</button>
+          <button type="button" class="btn btn-secondary hidden" id="openSheetBtnTop">Открыть таблицу</button>
         </div>
       </div>
 
@@ -42,7 +42,7 @@
           <strong>включено</strong>
         </div>
         <p class="muted">
-          План по артикулам уже подтянут в сайт. Пакет крутится по рабочим дням, а задачи можно обновлять отдельным JSON-файлом.
+          План собран по реальным ролям: Анастасия — WB, Ирина Паламарук — Ozon, плюс координатор поставок. Теперь в пакете по каждому артикулу есть не только план, но и отдельный блок «что сделать сегодня» с комментарием из исходного файла.
         </p>
       </div>
     </header>
@@ -55,10 +55,9 @@
           <div class="panel-head">
             <div>
               <h2>Профиль дня</h2>
-              <p>Выберите менеджера и дату. Сайт сам подтянет нужные 20 артикулов и план на день.</p>
+              <p>Выберите роль и дату. Для менеджеров сайт подтянет пакет артикулов, план на день и комментарии по каждому артикулу. Для координатора — ежедневные задачи и тетрадь действий.</p>
             </div>
             <div class="inline-actions">
-              <button type="button" class="btn btn-ghost" id="copyLinkBtn">Скопировать личную ссылку</button>
               <button type="button" class="btn btn-ghost" id="reloadBtn">Обновить</button>
             </div>
           </div>
@@ -70,7 +69,7 @@
             </label>
 
             <label class="field">
-              <span>Менеджер</span>
+              <span>Сотрудник / роль</span>
               <select id="managerSelect"></select>
             </label>
 
@@ -99,7 +98,7 @@
             </label>
 
             <label class="field field-wide">
-              <span>Личная ссылка менеджера</span>
+              <span>Зона ответственности</span>
               <textarea id="managerLinkPreview" rows="2" readonly></textarea>
             </label>
           </div>
@@ -108,14 +107,15 @@
             <span class="badge" id="packBadge">Пакет —</span>
             <span class="badge" id="articlesCountBadge">Артикулы —</span>
             <span class="badge" id="sourceBadge">Источник —</span>
+            <span class="badge" id="priorityBadge">Приоритеты —</span>
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="numbersPanel">
           <div class="panel-head">
             <div>
               <h2>План и факт дня</h2>
-              <p>План на день считается автоматически по текущему пакету артикулов. Факт можно ввести руками или подтянуть из строк ниже.</p>
+              <p>План на день считается автоматически по текущему пакету артикулов. Факт заполняется вручную по итогам дня; строка по артикулу нужна для статуса и комментария менеджера.</p>
             </div>
             <div class="inline-actions">
               <button type="button" class="btn btn-secondary" id="syncFactsBtn">Подтянуть факт из строк</button>
@@ -197,11 +197,11 @@
           </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="articlesPanel">
           <div class="panel-head">
             <div>
               <h2>20 артикулов на день</h2>
-              <p>Пакет собирается автоматически по рабочему дню месяца. Приоритет — статьи с более высоким маржинальным вкладом в текущем месяце.</p>
+              <p>Пакет собирается автоматически по рабочему дню месяца. Внутри он уже разложен по приоритету: сначала критично, затем срочно, затем планово. Для каждого артикула менеджер видит, что именно нужно сделать сегодня.</p>
             </div>
           </div>
 
@@ -210,8 +210,10 @@
               <thead>
                 <tr>
                   <th>#</th>
+                  <th>Приоритет</th>
                   <th>Артикул</th>
                   <th>Товар</th>
+                  <th>Что сделать сегодня</th>
                   <th>План на месяц</th>
                   <th>План на день</th>
                   <th>Факт заказов</th>
@@ -221,7 +223,7 @@
                 </tr>
               </thead>
               <tbody id="articlesBody">
-                <tr><td colspan="9" class="empty-state cell-empty">Пакет ещё не собран.</td></tr>
+                <tr><td colspan="11" class="empty-state cell-empty">Пакет ещё не собран.</td></tr>
               </tbody>
             </table>
           </div>
@@ -294,12 +296,12 @@
         </section>
 
         <section class="panel compact-panel">
-          <h2>Как считается пакет</h2>
+          <h2 id="packRulesTitle">Как считается пакет</h2>
           <ol class="steps">
-            <li>Берётся список артикулов менеджера.</li>
-            <li>Для выбранного месяца они сортируются по маржинальному вкладу.</li>
-            <li>Список режется на пакеты по 20 артикулов.</li>
-            <li>Пакет меняется по рабочим дням.</li>
+            <li>Для WB и Ozon берётся общий список артикулов по площадке.</li>
+            <li>Артикулы сортируются сначала по срочности комментария, потом по плановому вкладу.</li>
+            <li>Список режется на пакеты по 20 артикулов на день.</li>
+            <li>Внутри пакета менеджер видит «что сделать сегодня» и комментарий из исходного файла.</li>
             <li>План на день = план месяца / число рабочих дней месяца.</li>
           </ol>
         </section>
@@ -314,18 +316,18 @@
         <section class="panel compact-panel">
           <h2>Кнопки руководителя</h2>
           <div class="stack">
-            <button type="button" class="btn btn-primary wide" id="openSheetBtn">Открыть Google Sheet</button>
-            <button type="button" class="btn btn-secondary wide" id="downloadPackBtn">Скачать пакет на 02.04.2026</button>
+            <button type="button" class="btn btn-primary wide hidden" id="openSheetBtn">Открыть общую таблицу</button>
+            <button type="button" class="btn btn-secondary wide" id="downloadPackBtn">Скачать текущий пакет CSV</button>
           </div>
           <p class="muted small-text">
-            Пока Google-скрипт не подключён, всё работает локально в браузере. Структура для выгрузки уже подготовлена.
+            Пока Google-скрипт не подключён, всё работает локально в браузере. В этой версии основной упор сделан на пакет артикулов, задачи дня и тетрадь действий.
           </p>
         </section>
       </aside>
     </div>
 
     <footer class="footer">
-      <p>Эта версия уже заточена под ваш процесс: ежедневные задачи, пакет из 20 артикулов, тетрадь действий и план/факт по менеджеру.</p>
+      <p>Эта версия уже заточена под ваш процесс: реальные роли, 20 артикулов в день, отдельное поле «что сделать сегодня», комментарий из файла, тетрадь действий и режим координатора поставок.</p>
     </footer>
   </div>
 
