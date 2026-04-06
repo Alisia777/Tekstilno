@@ -1,42 +1,47 @@
-const DEFAULT_CONFIG = {
-  organizationName: "Текстильно",
-  siteVersion: "v6",
-  appsScriptUrl: "",
-  googleSheetUrl: "",
-  packSize: 20,
-  cycleAnchorDate: "2026-04-02",
-  clearAfterSubmit: false,
-  maxLocalReports: 40,
-  planDataUrl: "data/article-plan.json",
-  tasksDataUrl: "data/daily-tasks.json",
-  overridesDataUrl: "data/daily-article-overrides.json"
-};
-
-const STORAGE_PREFIX = "manager-journal-v6";
-const HISTORY_KEY = `${STORAGE_PREFIX}:reports`;
-
 const state = {
-  config: { ...DEFAULT_CONFIG, ...(window.APP_CONFIG || {}) },
-  planData: null,
-  tasksData: null,
-  overridesData: null,
-  managerKey: "",
-  managerData: null,
-  currentChannel: "",
-  dynamicTasks: [],
-  articleStates: {},
-  actions: [],
-  packMeta: null,
-  dailyPack: [],
-  filteredPack: [],
-  lastMessageTimeout: null,
-  currentReportId: null,
-  articleFilters: {
-    priority: "all",
-    status: "all",
-    search: ""
-  }
+  config: window.APP_CONFIG || {},
+  data: {
+    plan: null,
+    clusters: null
+  },
+  date: "",
+  activeTab: "wb",
+  filters: {
+    wb: { pack: "current", priority: "all", status: "all", search: "" },
+    ozon: { pack: "current", priority: "all", status: "all", search: "" },
+    leader: { date: "", type: "all", manager: "all", source: "all" },
+    supplies: { channel: "WB", sellerArticle: "", targetDays: 21 }
+  },
+  managerDrafts: loadStorage("tekstilno-v9-manager-drafts", {}),
+  suppliesDrafts: loadStorage("tekstilno-v9-supplies-drafts", {}),
+  localSubmissions: loadStorage("tekstilno-v9-local-submissions", []),
+  remoteDashboard: { managerSubmissions: [], clusterForms: [] },
+  selectedLeaderId: null
 };
+
+const MANAGER_TABS = {
+  wb: { prefix: "wb", manager: "Анастасия", channel: "WB" },
+  ozon: { prefix: "ozon", manager: "Ирина Паламарук", channel: "Ozon" }
+};
+
+const MANAGER_STATUS_OPTIONS = [
+  { value: "not-started", label: "Не начато" },
+  { value: "in-progress", label: "В работе" },
+  { value: "done", label: "Сделано" },
+  { value: "to-supply", label: "Передано в поставки" },
+  { value: "blocked", label: "Блокер" },
+  { value: "need-help", label: "Нужна помощь" }
+];
+
+const SUPPLY_STATUS_OPTIONS = [
+  { value: "draft", label: "Черновик" },
+  { value: "approved", label: "Согласовано" },
+  { value: "production", label: "В производстве" },
+  { value: "procurement", label: "В закупке" },
+  { value: "in-transit", label: "В поставке" },
+  { value: "done", label: "Закрыто" },
+  { value: "blocked", label: "Блокер" }
+];
 
 const els = {};
 
@@ -45,1560 +50,1252 @@ document.addEventListener("DOMContentLoaded", init);
 async function init() {
   cacheElements();
   bindEvents();
-  setupStaticTexts();
-  setDefaultDate();
+  hydrateStaticUi();
+  setInitialDate();
   await loadData();
-  hydrateManagers();
-  applyQueryDefaults();
-  refreshContext({ shouldRestoreDraft: true });
+  renderAll();
+  await loadRemoteDashboard(false);
+  renderLeaderView();
 }
-
 
 function cacheElements() {
-  [
-    "siteTitle","statusBanner","planStatusBadge","packStatusBadge","submitStatusBadge","channelFilter","managerSelect","reportDate","channel","department",
-    "dayFocus","overallStatus","managerLinkPreview","packBadge","articlesCountBadge","sourceBadge","priorityBadge","headlineArticles","headlineArticlesSub",
-    "headlineOrdersPlan","headlineMarginPlan","headlineRevenuePlan","headlineOrdersSub","headlineMarginSub","headlineRevenueSub",
-    "ordersPlanCell","ordersFact","ordersDeviation","marginPlanCell","marginFact","marginDeviation","revenuePlanCell","revenueFact","revenueDeviation",
-    "numbersComment","rowFactsHint","tasksList","articlesBody","actionsList","doneSummary","blockers","helpNeeded","tomorrowFocus",
-    "formMessage","managerSummaryList","localHistoryList","openSheetBtn","openSheetBtnTop","downloadPackBtn","numbersPanel","articlesPanel",
-    "articlePriorityFilter","articleStatusFilter","articleSearch"
-  ].forEach((id) => {
-    els[id] = document.getElementById(id);
-  });
-
-  els.saveDraftButtons = [document.getElementById("saveDraftBtn"), document.getElementById("saveDraftBtnTop")].filter(Boolean);
-  els.fillLastButtons = [document.getElementById("fillLastBtn"), document.getElementById("fillLastBtnTop")].filter(Boolean);
-  els.copyLinkBtn = document.getElementById("copyLinkBtn");
-  els.reloadBtn = document.getElementById("reloadBtn");
-  els.syncFactsBtn = document.getElementById("syncFactsBtn");
-  els.addActionBtn = document.getElementById("addActionBtn");
-  els.clearDraftBtn = document.getElementById("clearDraftBtn");
-  els.exportJsonBtn = document.getElementById("exportJsonBtn");
-  els.submitBtn = document.getElementById("submitBtn");
-  els.submitFrame = document.getElementById("submitFrame");
+  const ids = [
+    "heroTitle", "storageModeBadge", "planFactBadge", "clusterBadge", "packSizeBadge", "banner",
+    "globalReportDate",
+    "wbResponsibilityBadge", "wbSourceBadge", "wbPackCard", "wbCountCard", "wbCriticalCard", "wbPlanOrdersCard", "wbFactOrdersCard", "wbDeltaOrdersCard", "wbPlanMarginCard", "wbSupplyCard", "wbPackFilter", "wbPriorityFilter", "wbStatusFilter", "wbSearchFilter", "wbPlanNote", "wbArticlesBody", "wbDayComment", "wbNeedHelp", "wbSaveBtn", "wbExportBtn", "wbSubmitBtn",
+    "ozonResponsibilityBadge", "ozonSourceBadge", "ozonPackCard", "ozonCountCard", "ozonCriticalCard", "ozonPlanOrdersCard", "ozonFactOrdersCard", "ozonDeltaOrdersCard", "ozonPlanMarginCard", "ozonSupplyCard", "ozonPackFilter", "ozonPriorityFilter", "ozonStatusFilter", "ozonSearchFilter", "ozonPlanNote", "ozonArticlesBody", "ozonDayComment", "ozonNeedHelp", "ozonSaveBtn", "ozonExportBtn", "ozonSubmitBtn",
+    "suppliesChannel", "suppliesArticleSelect", "suppliesTargetDays", "suppliesCoordinator", "suppliesTitleCard", "suppliesMainStockCard", "suppliesPlatformStockCard", "suppliesDemandCard", "suppliesRecommendedCard", "suppliesRowsCard", "suppliesHint", "suppliesRowsBody", "suppliesSaveBtn", "suppliesExportBtn", "suppliesSubmitBtn",
+    "leaderDateFilter", "leaderTypeFilter", "leaderManagerFilter", "leaderSourceFilter", "leaderTotalCard", "leaderManagerCard", "leaderClusterCard", "leaderIssuesCard", "leaderFeedBody", "leaderDetails", "leaderRefreshBtn", "leaderExportAllBtn", "leaderImportInput", "openSheetBtn",
+    "toast"
+  ];
+  ids.forEach((id) => { els[id] = document.getElementById(id); });
+  els.tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
+  els.tabPanels = {
+    wb: document.getElementById("tab-wb"),
+    ozon: document.getElementById("tab-ozon"),
+    supplies: document.getElementById("tab-supplies"),
+    leader: document.getElementById("tab-leader")
+  };
+  els.openTabButtons = Array.from(document.querySelectorAll("[data-open-tab]"));
 }
-
 
 function bindEvents() {
-  els.channelFilter.addEventListener("change", handleChannelChange);
-  els.managerSelect.addEventListener("change", handleManagerChange);
-  els.reportDate.addEventListener("change", () => refreshContext({ shouldRestoreDraft: true }));
-  els.dayFocus.addEventListener("input", handleScalarInput);
-  els.department.addEventListener("input", handleScalarInput);
-  els.overallStatus.addEventListener("change", handleScalarInput);
-  els.ordersFact.addEventListener("input", handleScalarInput);
-  els.marginFact.addEventListener("input", handleScalarInput);
-  els.revenueFact.addEventListener("input", handleScalarInput);
-  els.numbersComment.addEventListener("input", handleScalarInput);
-  els.doneSummary.addEventListener("input", handleScalarInput);
-  els.blockers.addEventListener("input", handleScalarInput);
-  els.helpNeeded.addEventListener("input", handleScalarInput);
-  els.tomorrowFocus.addEventListener("input", handleScalarInput);
+  els.tabButtons.forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
+  els.openTabButtons.forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.openTab)));
+  els.globalReportDate.addEventListener("change", handleGlobalDateChange);
 
-  if (els.articlePriorityFilter) {
-    els.articlePriorityFilter.addEventListener("change", handleArticleFilterChange);
-  }
-  if (els.articleStatusFilter) {
-    els.articleStatusFilter.addEventListener("change", handleArticleFilterChange);
-  }
-  if (els.articleSearch) {
-    els.articleSearch.addEventListener("input", handleArticleFilterChange);
-  }
-
-  els.tasksList.addEventListener("input", handleTaskInput);
-  els.tasksList.addEventListener("change", handleTaskInput);
-
-  els.articlesBody.addEventListener("input", handleArticleInput);
-  els.articlesBody.addEventListener("change", handleArticleInput);
-
-  els.actionsList.addEventListener("input", handleActionInput);
-  els.actionsList.addEventListener("click", handleActionClick);
-
-  els.saveDraftButtons.forEach((button) => button.addEventListener("click", () => saveDraft(true)));
-  els.fillLastButtons.forEach((button) => button.addEventListener("click", fillFromLastReport));
-  if (els.copyLinkBtn) {
-    els.copyLinkBtn.addEventListener("click", copyManagerLink);
-  }
-  if (els.reloadBtn) {
-    els.reloadBtn.addEventListener("click", async () => {
-      await loadData();
-      hydrateManagers();
-      refreshContext({ shouldRestoreDraft: true });
+  Object.keys(MANAGER_TABS).forEach((tabKey) => {
+    const prefix = MANAGER_TABS[tabKey].prefix;
+    els[`${prefix}PackFilter`].addEventListener("change", () => {
+      state.filters[tabKey].pack = els[`${prefix}PackFilter`].value;
+      renderManagerTable(tabKey);
+      updateManagerSummary(tabKey);
     });
-  }
-  els.syncFactsBtn.addEventListener("click", syncFactsFromRows);
-  els.addActionBtn.addEventListener("click", addActionRow);
-  els.clearDraftBtn.addEventListener("click", clearCurrentDraft);
-  els.exportJsonBtn.addEventListener("click", exportCurrentJson);
-  els.submitBtn.addEventListener("click", submitReport);
-  [els.openSheetBtn, els.openSheetBtnTop].forEach((button) => {
-    if (button) {
-      button.addEventListener("click", openSheet);
+    els[`${prefix}PriorityFilter`].addEventListener("change", () => {
+      state.filters[tabKey].priority = els[`${prefix}PriorityFilter`].value;
+      renderManagerTable(tabKey);
+    });
+    els[`${prefix}StatusFilter`].addEventListener("change", () => {
+      state.filters[tabKey].status = els[`${prefix}StatusFilter`].value;
+      renderManagerTable(tabKey);
+    });
+    els[`${prefix}SearchFilter`].addEventListener("input", () => {
+      state.filters[tabKey].search = els[`${prefix}SearchFilter`].value;
+      renderManagerTable(tabKey);
+    });
+
+    els[`${prefix}ArticlesBody`].addEventListener("change", (event) => handleManagerTableChange(tabKey, event));
+    els[`${prefix}ArticlesBody`].addEventListener("input", (event) => handleManagerTableInput(tabKey, event));
+    els[`${prefix}DayComment`].addEventListener("input", () => {
+      getManagerDraft(tabKey).dayComment = els[`${prefix}DayComment`].value;
+      persistManagerDrafts();
+    });
+    els[`${prefix}NeedHelp`].addEventListener("input", () => {
+      getManagerDraft(tabKey).needHelp = els[`${prefix}NeedHelp`].value;
+      persistManagerDrafts();
+    });
+
+    els[`${prefix}SaveBtn`].addEventListener("click", () => {
+      persistManagerDrafts();
+      showToast(`Черновик ${MANAGER_TABS[tabKey].channel} сохранён.`);
+    });
+    els[`${prefix}ExportBtn`].addEventListener("click", () => exportManagerCurrent(tabKey));
+    els[`${prefix}SubmitBtn`].addEventListener("click", () => submitManager(tabKey));
+  });
+
+  els.suppliesChannel.addEventListener("change", () => {
+    state.filters.supplies.channel = els.suppliesChannel.value;
+    state.filters.supplies.sellerArticle = "";
+    renderSuppliesControls();
+    renderSuppliesView();
+  });
+  els.suppliesArticleSelect.addEventListener("change", () => {
+    state.filters.supplies.sellerArticle = els.suppliesArticleSelect.value;
+    renderSuppliesView();
+  });
+  els.suppliesTargetDays.addEventListener("change", () => {
+    state.filters.supplies.targetDays = Number(els.suppliesTargetDays.value || 21);
+    const draft = getSuppliesDraft();
+    draft.targetDays = state.filters.supplies.targetDays;
+    persistSuppliesDrafts();
+    renderSuppliesView();
+  });
+  els.suppliesCoordinator.addEventListener("input", () => {
+    const draft = getSuppliesDraft();
+    draft.coordinator = els.suppliesCoordinator.value;
+    persistSuppliesDrafts();
+  });
+  els.suppliesRowsBody.addEventListener("change", handleSuppliesRowsChange);
+  els.suppliesRowsBody.addEventListener("input", handleSuppliesRowsInput);
+  els.suppliesSaveBtn.addEventListener("click", () => {
+    persistSuppliesDrafts();
+    showToast("Черновик поставок сохранён.");
+  });
+  els.suppliesExportBtn.addEventListener("click", exportSuppliesCurrent);
+  els.suppliesSubmitBtn.addEventListener("click", submitSupplies);
+
+  els.leaderDateFilter.addEventListener("change", () => {
+    state.filters.leader.date = els.leaderDateFilter.value;
+    renderLeaderView();
+  });
+  els.leaderTypeFilter.addEventListener("change", () => {
+    state.filters.leader.type = els.leaderTypeFilter.value;
+    renderLeaderView();
+  });
+  els.leaderManagerFilter.addEventListener("change", () => {
+    state.filters.leader.manager = els.leaderManagerFilter.value;
+    renderLeaderView();
+  });
+  els.leaderSourceFilter.addEventListener("change", () => {
+    state.filters.leader.source = els.leaderSourceFilter.value;
+    renderLeaderView();
+  });
+  els.leaderFeedBody.addEventListener("click", handleLeaderFeedClick);
+  els.leaderRefreshBtn.addEventListener("click", async () => {
+    await loadRemoteDashboard(true);
+    renderLeaderView();
+  });
+  els.leaderExportAllBtn.addEventListener("click", exportAllData);
+  els.leaderImportInput.addEventListener("change", importAllData);
+  els.openSheetBtn.addEventListener("click", () => {
+    if (state.config.googleSheetUrl) {
+      window.open(state.config.googleSheetUrl, "_blank", "noopener");
     }
   });
-  if (els.downloadPackBtn) {
-    els.downloadPackBtn.addEventListener("click", downloadCurrentPackCsv);
+}
+
+function hydrateStaticUi() {
+  els.heroTitle.textContent = `${state.config.organizationName || "Текстильно"} — прозрачные задачи по артикулам`;
+  els.storageModeBadge.textContent = state.config.appsScriptUrl ? "Apps Script + локально" : "локально";
+  els.packSizeBadge.textContent = `${state.config.packSize || 20} артикулов`;
+  if (!state.config.googleSheetUrl) {
+    els.openSheetBtn.classList.add("hidden");
   }
 }
 
-
-function getVersionedUrl(url) {
-  const value = state.config.siteVersion || Date.now();
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}v=${encodeURIComponent(value)}`;
-}
-
-function getManagerChannel(manager) {
-  if (!manager) return "";
-  if (manager.role === "supplyCoordinator") return "Поставки";
-  return manager.channel || "";
-}
-function getPlatformArticleId(article) {
-  const channel = article.channel || state.managerData?.channel || "";
-  if (channel === "Ozon") return article.ozonArticle || article.wbArticle || "";
-  return article.wbArticle || article.ozonArticle || "";
-}
-
-function getPlatformArticleLabel(article) {
-  const channel = article.channel || state.managerData?.channel || "";
-  return channel === "Ozon" ? "Ozon артикул" : "WB артикул";
-}
-
-
-function getChannelOptions() {
-  const managers = (state.planData && state.planData.managers) || {};
-  const channels = new Set(Object.values(managers).map(getManagerChannel).filter(Boolean));
-  return ["WB", "Ozon", "Поставки"].filter((item) => channels.has(item));
-}
-
-function getManagerNamesForChannel(channel) {
-  const managers = (state.planData && state.planData.managers) || {};
-  return Object.keys(managers)
-    .filter((name) => getManagerChannel(managers[name]) === channel)
-    .sort((a, b) => a.localeCompare(b, "ru"));
-}
-
-function handleChannelChange() {
-  state.currentChannel = els.channelFilter.value;
-  hydrateManagers({ preserveManager: false });
-  refreshContext({ shouldRestoreDraft: true });
-}
-
-function handleManagerChange() {
-  const manager = state.planData?.managers?.[els.managerSelect.value];
-  if (manager) {
-    const channel = getManagerChannel(manager);
-    state.currentChannel = channel;
-    if (els.channelFilter.value !== channel) {
-      els.channelFilter.value = channel;
-    }
-  }
-  refreshContext({ shouldRestoreDraft: true });
-}
-
-function handleArticleFilterChange() {
-  state.articleFilters.priority = els.articlePriorityFilter ? els.articlePriorityFilter.value : "all";
-  state.articleFilters.status = els.articleStatusFilter ? els.articleStatusFilter.value : "all";
-  state.articleFilters.search = els.articleSearch ? els.articleSearch.value.trim().toLowerCase() : "";
-  renderArticles();
-  saveDraft(false);
-}
-
-
-function resetArticleFilters() {
-  state.articleFilters = { priority: "all", status: "all", search: "" };
-  if (els.articlePriorityFilter) els.articlePriorityFilter.value = "all";
-  if (els.articleStatusFilter) els.articleStatusFilter.value = "all";
-  if (els.articleSearch) els.articleSearch.value = "";
-}
-
-function setupStaticTexts() {
-  if (els.siteTitle) {
-    els.siteTitle.textContent = `${state.config.organizationName} — тетрадь менеджеров и координатора`;
-  }
-  els.packStatusBadge.textContent = `${state.config.packSize} артикулов`;
-  els.submitStatusBadge.textContent = state.config.appsScriptUrl ? "Google Apps Script" : "локально";
-}
-
-function setDefaultDate() {
+function setInitialDate() {
   const today = new Date();
-  els.reportDate.value = formatDateInput(today);
+  const value = formatDateInput(today);
+  state.date = value;
+  state.filters.leader.date = value;
+  els.globalReportDate.value = value;
+  els.leaderDateFilter.value = value;
+  els.suppliesTargetDays.value = state.filters.supplies.targetDays;
 }
-
 
 async function loadData() {
+  setBanner("Загружаю план/факт по артикулам и кластера…", "info");
   try {
-    const planUrl = getVersionedUrl(state.config.planDataUrl);
-    const tasksUrl = getVersionedUrl(state.config.tasksDataUrl);
-    const overridesUrl = getVersionedUrl(state.config.overridesDataUrl);
-
-    const [planResponse, tasksResponse, overridesResponse] = await Promise.all([
-      fetch(planUrl, { cache: "no-store" }),
-      fetch(tasksUrl, { cache: "no-store" }),
-      fetch(overridesUrl, { cache: "no-store" })
+    const [plan, clusters] = await Promise.all([
+      fetchJson(versionedUrl(state.config.planDataUrl)),
+      fetchJson(versionedUrl(state.config.clusterDataUrl))
     ]);
+    state.data.plan = plan;
+    state.data.clusters = clusters;
 
-    if (!planResponse.ok) {
-      throw new Error(`Не удалось загрузить article-plan.json (${planResponse.status})`);
-    }
-    if (!tasksResponse.ok) {
-      throw new Error(`Не удалось загрузить daily-tasks.json (${tasksResponse.status})`);
-    }
-    if (!overridesResponse.ok) {
-      throw new Error(`Не удалось загрузить daily-article-overrides.json (${overridesResponse.status})`);
-    }
-
-    state.planData = await planResponse.json();
-    state.tasksData = await tasksResponse.json();
-    state.overridesData = await overridesResponse.json();
-
-    const rolesCount = Object.keys(state.planData.managers || {}).length;
-    els.planStatusBadge.textContent = `${rolesCount} роли`;
-    setBanner("Данные загружены: площадки разделены, менеджеры отфильтрованы по каналу, инструкции по артикулам подтянуты из daily-article-overrides.json.", "success");
+    const wbStats = countMatchedPlan("wb");
+    const ozonStats = countMatchedPlan("ozon");
+    els.planFactBadge.textContent = `WB ${wbStats.matched}/${wbStats.total} · Ozon ${ozonStats.matched}/${ozonStats.total}`;
+    els.clusterBadge.textContent = `${(clusters.wbRows || []).length} WB / ${(clusters.ozonRows || []).length} Ozon`;
+    setBanner("Данные загружены. Менеджеры отмечают только статусы и комментарии, план/факт уже подставлен.", "success");
   } catch (error) {
     console.error(error);
-    setBanner(`Не получилось загрузить данные сайта: ${error.message}. Проверьте файлы data/article-plan.json, data/daily-tasks.json и data/daily-article-overrides.json.`, "error");
-    els.planStatusBadge.textContent = "ошибка";
+    setBanner(`Ошибка загрузки данных: ${error.message}`, "error");
   }
 }
 
-function hydrateManagers({ preserveManager = true } = {}) {
-  const managers = (state.planData && state.planData.managers) || {};
-  const channelOptions = getChannelOptions();
-
-  if (!els.channelFilter) return;
-
-  const previousChannel = state.currentChannel || els.channelFilter.value;
-  if (!channelOptions.includes(els.channelFilter.value)) {
-    els.channelFilter.innerHTML = channelOptions.map((channel) => `<option value="${escapeHtml(channel)}">${escapeHtml(channel)}</option>`).join("");
-  }
-
-  const desiredChannel = channelOptions.includes(previousChannel) ? previousChannel : channelOptions[0];
-  state.currentChannel = desiredChannel || "";
-  if (desiredChannel) {
-    els.channelFilter.value = desiredChannel;
-  }
-
-  const managerNames = getManagerNamesForChannel(state.currentChannel);
-  const previousManager = preserveManager ? els.managerSelect.value : "";
-  els.managerSelect.innerHTML = managerNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
-
-  const keepManager = previousManager && managerNames.includes(previousManager);
-  if (keepManager) {
-    els.managerSelect.value = previousManager;
-  } else if (managerNames.length) {
-    els.managerSelect.selectedIndex = 0;
-  }
-
-  renderManagerSummary();
-}
-
-function renderManagerSummary() {
-  const managers = (state.planData && state.planData.managers) || {};
-  const names = Object.keys(managers).sort((a, b) => a.localeCompare(b, "ru"));
-  if (!names.length) {
-    els.managerSummaryList.innerHTML = "<li>Данные ещё не загружены.</li>";
-    return;
-  }
-
-  els.managerSummaryList.innerHTML = names.map((name) => {
-    const item = managers[name];
-    const channel = getManagerChannel(item);
-    const suffix = item.articleCount
-      ? `${channel}, ${item.articleCount} артикулов, ${item.packCount} пакета`
-      : `${channel}, без пакета артикулов`;
-    return `<li><strong>${escapeHtml(name)}</strong> — ${escapeHtml(suffix)}</li>`;
-  }).join("");
-}
-
-function applyQueryDefaults() {
-  const params = new URLSearchParams(window.location.search);
-  const managerFromQuery = params.get("manager");
-  const channelFromQuery = params.get("channel");
-  const dateFromQuery = params.get("date");
-
-  if (dateFromQuery && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery)) {
-    els.reportDate.value = dateFromQuery;
-  }
-
-  const managers = state.planData?.managers || {};
-
-  if (managerFromQuery && managers[managerFromQuery]) {
-    const channel = getManagerChannel(managers[managerFromQuery]);
-    state.currentChannel = channel;
-    els.channelFilter.value = channel;
-    hydrateManagers({ preserveManager: false });
-    els.managerSelect.value = managerFromQuery;
-    return;
-  }
-
-  if (channelFromQuery && getChannelOptions().includes(channelFromQuery)) {
-    state.currentChannel = channelFromQuery;
-    els.channelFilter.value = channelFromQuery;
-    hydrateManagers({ preserveManager: false });
-    return;
-  }
-
-  hydrateManagers({ preserveManager: true });
-}
-
-function refreshContext({ shouldRestoreDraft = false } = {}) {
-  if (!state.planData || !state.planData.managers) {
-    return;
-  }
-
-  if (!els.managerSelect.value) {
-    const managerNames = getManagerNamesForChannel(els.channelFilter.value || state.currentChannel || "");
-    if (managerNames.length) {
-      els.managerSelect.value = managerNames[0];
-    } else {
-      return;
-    }
-  }
-
-  state.managerKey = els.managerSelect.value;
-  state.managerData = state.planData.managers[state.managerKey];
-
-  if (!state.managerData) {
-    return;
-  }
-
-  state.currentChannel = getManagerChannel(state.managerData);
-  if (els.channelFilter.value !== state.currentChannel) {
-    els.channelFilter.value = state.currentChannel;
-  }
-
-  state.currentReportId = cryptoRandomId();
-
-  els.channel.value = getManagerChannel(state.managerData) || "";
-  if (!els.department.value || shouldRestoreDraft) {
-    els.department.value = state.managerData.department || "";
-  }
-
-  updateManagerLinkPreview();
-  buildTasksForContext();
-  buildPackForContext();
-  resetArticleFilters();
-
-  if (state.managerData.role !== "supplyCoordinator") {
-    const packText = state.dailyPack.length ? `Пакет ${state.packMeta.packNo} из ${state.packMeta.packCount} готов.` : "Пакет пустой.";
-    setBanner(`${state.currentChannel} · ${state.managerKey}: ${packText}`, "success");
-  }
-
-  toggleRoleSections();
-
-  if (shouldRestoreDraft) {
-    restoreDraft();
-  } else if (!state.actions.length) {
-    state.actions = [makeEmptyAction()];
-  }
-
-  renderAll();
-}
-
-function buildTasksForContext() {
-  const dateKey = els.reportDate.value;
-  const managerName = state.managerKey;
-  const taskSources = [];
-  const tasksData = state.tasksData || {};
-  const previousById = Object.fromEntries((state.dynamicTasks || []).map((task) => [task.id, task]));
-
-  taskSources.push(...(tasksData.defaultTasks || []));
-  taskSources.push(...(((tasksData.managerDefaults || {})[managerName]) || []));
-
-  const byDate = (tasksData.byDate || {})[dateKey] || {};
-  taskSources.push(...(byDate.all || []));
-  taskSources.push(...(((byDate.managers || {})[managerName]) || []));
-
-  state.dynamicTasks = taskSources.map((task, index) => {
-    const id = task.id || slugify(`${managerName}-${dateKey}-${task.title || index}`);
-    return {
-      id,
-      title: task.title || `Задача ${index + 1}`,
-      type: task.type || "task",
-      status: previousById[id]?.status || "",
-      comment: previousById[id]?.comment || ""
-    };
-  });
-}
-
-function buildPackForContext() {
-  const packSize = state.config.packSize || state.planData.packSizeDefault || 20;
-  const reportDate = parseReportDate();
-  const monthKey = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`;
-
-  const orderedArticles = [...(state.managerData?.articles || [])].sort((a, b) => {
-    return getPriorityScore(b, monthKey) - getPriorityScore(a, monthKey);
-  });
-
-  if (!orderedArticles.length) {
-    state.articleStates = {};
-    state.dailyPack = [];
-    state.filteredPack = [];
-    state.packMeta = {
-      packNo: 0,
-      packCount: 0,
-      packSize: 0,
-      workingDays: getWorkingDaysInMonth(reportDate),
-      monthKey,
-      anchorDate: formatDateInput(getCycleAnchorDate(reportDate)),
-      totalPlan: { orders: 0, margin: 0, revenue: 0 },
-      bucketCounts: { critical: 0, high: 0, medium: 0, low: 0 }
-    };
-    els.packBadge.textContent = "Пакет — не используется";
-    els.articlesCountBadge.textContent = "Артикулы: 0";
-    els.sourceBadge.textContent = `Источник: ${getManagerChannel(state.managerData) || "—"}`;
-    if (els.priorityBadge) {
-      els.priorityBadge.textContent = "Приоритеты: нет пакета";
+async function loadRemoteDashboard(showMessage) {
+  if (!state.config.appsScriptUrl) {
+    state.remoteDashboard = { managerSubmissions: [], clusterForms: [] };
+    if (showMessage) {
+      showToast("Apps Script пока не подключён. В журнале доступны локальные записи и импорт JSON.");
     }
     return;
   }
 
-  const packCount = Math.max(1, Math.ceil(orderedArticles.length / packSize));
-  const anchorDate = getCycleAnchorDate(reportDate);
-  const packIndex = orderedArticles.length ? (getBusinessDayIndex(reportDate, anchorDate) % packCount) : 0;
-  const desiredLength = Math.min(packSize, orderedArticles.length);
-
-  let dailyPack = orderedArticles.slice(packIndex * packSize, packIndex * packSize + desiredLength);
-  if (dailyPack.length < desiredLength) {
-    dailyPack = dailyPack.concat(orderedArticles.slice(0, desiredLength - dailyPack.length));
-  }
-
-  const workingDays = getWorkingDaysInMonth(reportDate);
-  const totalPlan = { orders: 0, margin: 0, revenue: 0 };
-  const previousArticleState = { ...state.articleStates };
-  state.articleStates = {};
-
-  dailyPack.forEach((article, index) => {
-    const key = getArticleKey(article);
-    const merged = getMergedArticleView(article);
-    const metrics = getMonthMetrics(article, monthKey);
-    const dailyPlan = {
-      orders: safeDivide(metrics.orders, workingDays),
-      margin: safeDivide(metrics.marginIncome, workingDays),
-      revenue: safeDivide(metrics.revenue, workingDays)
+  try {
+    const url = `${state.config.appsScriptUrl}?action=getDashboard&date=${encodeURIComponent(state.date)}&days=45`;
+    const payload = await loadJsonp(url);
+    state.remoteDashboard = {
+      managerSubmissions: Array.isArray(payload.managerSubmissions) ? payload.managerSubmissions : [],
+      clusterForms: Array.isArray(payload.clusterForms) ? payload.clusterForms : []
     };
-
-    totalPlan.orders += dailyPlan.orders;
-    totalPlan.margin += dailyPlan.margin;
-    totalPlan.revenue += dailyPlan.revenue;
-
-    state.articleStates[key] = {
-      key,
-      priority: index + 1,
-      priorityBucket: merged.priorityBucket || getPriorityBucket(index, dailyPack.length),
-      priorityReason: merged.priorityReason || "",
-      managerTask: merged.managerTask || "",
-      sourceComment: merged.sourceComment || "",
-      status: previousArticleState[key]?.status || "",
-      comment: previousArticleState[key]?.comment || "",
-      factOrders: previousArticleState[key]?.factOrders || "",
-      factMargin: previousArticleState[key]?.factMargin || "",
-      factRevenue: previousArticleState[key]?.factRevenue || "",
-      dailyPlan
-    };
-  });
-
-  state.dailyPack = dailyPack;
-  const bucketCounts = Object.values(state.articleStates).reduce((acc, item) => {
-    const bucket = item.priorityBucket || "low";
-    acc[bucket] = (acc[bucket] || 0) + 1;
-    return acc;
-  }, {});
-  state.packMeta = {
-    packNo: packIndex + 1,
-    packCount,
-    packSize: desiredLength,
-    workingDays,
-    monthKey,
-    anchorDate: formatDateInput(anchorDate),
-    totalPlan,
-    bucketCounts
-  };
-
-  els.packBadge.textContent = `Пакет ${state.packMeta.packNo} из ${state.packMeta.packCount}`;
-  els.articlesCountBadge.textContent = `Артикулы: ${desiredLength}`;
-  els.sourceBadge.textContent = `Источник: ${getManagerChannel(state.managerData)}`;
-  if (els.priorityBadge) {
-    const c = bucketCounts.critical || 0;
-    const h = bucketCounts.high || 0;
-    const m = bucketCounts.medium || 0;
-    const l = bucketCounts.low || 0;
-    els.priorityBadge.textContent = `Приоритеты: критично ${c} · высокий ${h} · средний ${m} · низкий ${l}`;
+    if (showMessage) {
+      showToast("Журнал Apps Script обновлён.");
+    }
+  } catch (error) {
+    console.error(error);
+    if (showMessage) {
+      showToast(`Не удалось обновить Apps Script: ${error.message}`);
+    }
   }
 }
-
 
 function renderAll() {
-  updateArticleHeader();
-  renderSummary();
-  renderTasks();
-  renderArticles();
-  renderActions();
-  renderLocalHistory();
-  updateManagerLinkPreview();
-  toggleRoleSections();
-  updateSetupState();
+  renderManagerPanel("wb");
+  renderManagerPanel("ozon");
+  renderSuppliesControls();
+  renderSuppliesView();
+  renderLeaderFilters();
+  renderLeaderView();
 }
 
-function updateArticleHeader() {
-  const header = document.getElementById("articleIdHeader");
-  if (!header) return;
-  header.textContent = state.managerData?.channel === "Ozon" ? "Ozon артикул" : "WB артикул";
+function switchTab(tab) {
+  state.activeTab = tab;
+  els.tabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tab));
+  Object.entries(els.tabPanels).forEach(([key, panel]) => panel.classList.toggle("active", key === tab));
 }
 
-function renderSummary() {
-  const totalPlan = state.packMeta ? state.packMeta.totalPlan : { orders: 0, margin: 0, revenue: 0 };
-
-  els.headlineArticles.textContent = `${state.dailyPack.length || 0}`;
-  els.headlineArticlesSub.textContent = state.dailyPack.length ? `Пакет ${state.packMeta.packNo} из ${state.packMeta.packCount}` : "Пакет не используется";
-
-  els.headlineOrdersPlan.textContent = formatNumber(totalPlan.orders);
-  els.headlineMarginPlan.textContent = formatCurrency(totalPlan.margin);
-  els.headlineRevenuePlan.textContent = formatCurrency(totalPlan.revenue);
-
-  els.ordersPlanCell.textContent = formatNumber(totalPlan.orders);
-  els.marginPlanCell.textContent = formatCurrency(totalPlan.margin);
-  els.revenuePlanCell.textContent = formatCurrency(totalPlan.revenue);
-
-  updateDeviationCell(els.ordersDeviation, totalPlan.orders, toNumber(els.ordersFact.value));
-  updateDeviationCell(els.marginDeviation, totalPlan.margin, toNumber(els.marginFact.value));
-  updateDeviationCell(els.revenueDeviation, totalPlan.revenue, toNumber(els.revenueFact.value));
-
-  const rowTotals = getArticleFactTotals();
-  els.rowFactsHint.textContent = rowTotals.orders || rowTotals.margin || rowTotals.revenue
-    ? `По строкам сейчас: заказов ${formatNumber(rowTotals.orders)}, маржи ${formatCurrency(rowTotals.margin)}, выручки ${formatCurrency(rowTotals.revenue)}.`
-    : "По строкам пока нет факта.";
+function handleGlobalDateChange() {
+  state.date = els.globalReportDate.value;
+  state.filters.leader.date = state.date;
+  els.leaderDateFilter.value = state.date;
+  renderManagerPanel("wb");
+  renderManagerPanel("ozon");
+  renderSuppliesControls();
+  renderSuppliesView();
+  renderLeaderView();
 }
 
-function renderTasks() {
-  if (!state.dynamicTasks.length) {
-    els.tasksList.innerHTML = `<div class="empty-state">На эту дату задачи пока не заданы.</div>`;
+function renderManagerPanel(tabKey) {
+  if (!state.data.plan) return;
+  const meta = MANAGER_TABS[tabKey];
+  const managerData = getManagerData(tabKey);
+  if (!managerData) return;
+
+  els[`${meta.prefix}ResponsibilityBadge`].textContent = managerData.role || meta.manager;
+  els[`${meta.prefix}SourceBadge`].textContent = managerData.sourceLabel ? `Источник: ${managerData.sourceLabel}` : `Источник: ${state.data.plan.sourceFiles.articleAnalysis}`;
+
+  populatePackFilter(tabKey);
+  const draft = getManagerDraft(tabKey);
+  els[`${meta.prefix}DayComment`].value = draft.dayComment || "";
+  els[`${meta.prefix}NeedHelp`].value = draft.needHelp || "";
+
+  renderManagerTable(tabKey);
+  updateManagerSummary(tabKey);
+}
+
+function populatePackFilter(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const select = els[`${meta.prefix}PackFilter`];
+  const managerData = getManagerData(tabKey);
+  const totalPacks = getTotalPacks(managerData);
+  const currentPack = getCurrentPackNumber(managerData, state.date);
+  const currentValue = state.filters[tabKey].pack || "current";
+
+  const options = [
+    { value: "current", label: `Текущий пакет: ${currentPack}` },
+    { value: "all", label: "Все пакеты" }
+  ];
+  for (let i = 1; i <= totalPacks; i += 1) {
+    options.push({ value: String(i), label: `Пакет ${i}` });
+  }
+
+  select.innerHTML = options.map((opt) => `<option value="${opt.value}">${escapeHtml(opt.label)}</option>`).join("");
+  select.value = options.some((opt) => opt.value === currentValue) ? currentValue : "current";
+  state.filters[tabKey].pack = select.value;
+}
+
+function renderManagerTable(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const body = els[`${meta.prefix}ArticlesBody`];
+  const articles = getFilteredManagerArticles(tabKey);
+
+  if (!articles.length) {
+    body.innerHTML = `<tr><td colspan="8"><div class="empty-state">По текущим фильтрам ничего не найдено.</div></td></tr>`;
     return;
   }
 
-  els.tasksList.innerHTML = state.dynamicTasks.map((task) => `
-    <article class="task-card" data-task-id="${escapeHtml(task.id)}">
-      <div class="task-head">
-        <div>
-          <div class="task-title">${escapeHtml(task.title)}</div>
-          <div class="task-meta">Тип: ${escapeHtml(task.type || "task")}</div>
-        </div>
-        <div class="row-select">
-          <select data-task-field="status">
-            ${renderStatusOptions(task.status)}
-          </select>
-        </div>
-      </div>
-      <label class="field">
-        <span>Комментарий менеджера</span>
-        <textarea rows="2" data-task-field="comment" placeholder="Что сделано, что мешает, какой итог">${escapeHtml(task.comment || "")}</textarea>
-      </label>
-    </article>
-  `).join("");
+  body.innerHTML = articles.map((article) => renderManagerRow(tabKey, article)).join("");
 }
 
+function renderManagerRow(tabKey, article) {
+  const draftRow = getManagerDraftRow(tabKey, article.sellerArticle);
+  const plan = getArticlePlan(article, state.date);
+  const fact = article.metrics || {};
+  const delta = isNumber(plan?.planOrdersDay) && isNumber(fact.factOrdersDay)
+    ? round2(fact.factOrdersDay - plan.planOrdersDay)
+    : null;
 
-function getFilteredPack() {
-  const priority = state.articleFilters.priority || "all";
-  const status = state.articleFilters.status || "all";
-  const search = (state.articleFilters.search || "").trim().toLowerCase();
+  const planHtml = plan
+    ? `
+      <div class="metric-group">
+        <strong>План ${monthLabelFromDate(state.date)}</strong>
+        <ul>
+          <li>Заказы / день: <b>${fmtNumber(plan.planOrdersDay)}</b></li>
+          <li>Выручка / день: <b>${fmtMoney(plan.planRevenueDay)}</b></li>
+          <li>Маржа / день: <b>${fmtMoney(plan.planMarginIncomeDay)}</b></li>
+        </ul>
+      </div>`
+    : `
+      <div class="metric-group">
+        <strong>План ${monthLabelFromDate(state.date)}</strong>
+        <ul><li>Нет прямой плановой строки в файле плана.</li></ul>
+      </div>`;
 
-  return state.dailyPack.filter((article) => {
-    const key = getArticleKey(article);
-    const row = state.articleStates[key] || {};
-    const merged = getMergedArticleView(article);
-    const effectiveStatus = row.status || "not_started";
+  const factMoneyLabel = fact.factMoneyLabel || "Факт ₽ / день";
+  const priorityClass = priorityClassName(article.priorityBucket);
 
-    if (priority !== "all" && (row.priorityBucket || merged.priorityBucket || "low") !== priority) {
-      return false;
-    }
-    if (status !== "all" && effectiveStatus !== status) {
-      return false;
-    }
-    if (search) {
-      const haystack = [
-        String(getPlatformArticleId(article) || ""),
-        String(article.sellerArticle || ""),
-        String(article.name || ""),
-        String(merged.managerTask || ""),
-        String(merged.sourceComment || "")
-      ].join(" ").toLowerCase();
-      if (!haystack.includes(search)) {
-        return false;
-      }
+  return `
+    <tr data-seller-article="${escapeHtml(article.sellerArticle)}">
+      <td><span class="priority-pill ${priorityClass}">${escapeHtml(article.priorityLabel || "—")}</span></td>
+      <td class="article-cell">
+        <strong>${escapeHtml(article.sellerArticle || "—")}</strong>
+        <div class="muted">${escapeHtml(article.platformArticleLabel || article.channel + " ID")} : ${escapeHtml(displayPlatformArticle(article) || "—")}</div>
+        ${article.wbArticle && article.channel === "Ozon" ? `<div class="muted">WB артикул: ${escapeHtml(article.wbArticle)}</div>` : ""}
+      </td>
+      <td class="article-cell">
+        <strong>${escapeHtml(article.name || "Без названия")}</strong>
+        <div class="muted">${escapeHtml(article.category || "")}</div>
+      </td>
+      <td>${escapeHtml(article.action || "Задача не задана")}</td>
+      <td>${escapeHtml(article.reason || "—")}</td>
+      <td>
+        <div class="article-metrics">
+          ${planHtml}
+          <div class="metric-group">
+            <strong>Факт</strong>
+            <ul>
+              <li>Заказы / день: <b>${fmtNumber(fact.factOrdersDay)}</b></li>
+              <li>${escapeHtml(factMoneyLabel)}: <b>${fmtMoney(fact.factMoneyDay)}</b></li>
+              <li>МП: <b>${fmtInt(fact.mpStock)}</b> шт · <b>${fmtNumber(fact.coverageDays)}</b> дн</li>
+              <li>Осн. склад: <b>${fmtInt(article.mainWarehouseStock)}</b> · Нужно: <b>${fmtInt(fact.supplyNeed)}</b></li>
+              ${delta !== null ? `<li>Отклонение заказов: <b>${delta >= 0 ? "+" : ""}${fmtNumber(delta)}</b></li>` : ""}
+            </ul>
+          </div>
+        </div>
+      </td>
+      <td>
+        <select class="status-select article-status" data-seller-article="${escapeHtml(article.sellerArticle)}">
+          ${MANAGER_STATUS_OPTIONS.map((opt) => `<option value="${opt.value}" ${draftRow.status === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("")}
+        </select>
+      </td>
+      <td>
+        <textarea class="row-input article-comment" data-seller-article="${escapeHtml(article.sellerArticle)}" rows="4" placeholder="Что сделано, какой результат, что дальше">${escapeHtml(draftRow.comment || "")}</textarea>
+      </td>
+    </tr>
+  `;
+}
+
+function updateManagerSummary(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const prefix = meta.prefix;
+  const scopedArticles = getScopedManagerArticles(tabKey);
+  const matched = scopedArticles.filter((article) => getArticlePlan(article, state.date)).length;
+  const critical = scopedArticles.filter((article) => article.priorityBucket === "critical").length;
+  const planOrders = sum(scopedArticles.map((article) => getArticlePlan(article, state.date)?.planOrdersDay));
+  const factOrders = sum(scopedArticles.map((article) => article.metrics?.factOrdersDay));
+  const planMargin = sum(scopedArticles.map((article) => getArticlePlan(article, state.date)?.planMarginIncomeDay));
+  const supplyNeed = sum(scopedArticles.map((article) => article.metrics?.supplyNeed));
+  const delta = isNumber(planOrders) && isNumber(factOrders) ? round2(factOrders - planOrders) : null;
+  const packLabel = describePackSelection(tabKey);
+
+  els[`${prefix}PackCard`].textContent = packLabel;
+  els[`${prefix}CountCard`].textContent = String(scopedArticles.length);
+  els[`${prefix}CriticalCard`].textContent = String(critical);
+  els[`${prefix}PlanOrdersCard`].textContent = fmtNumber(planOrders);
+  els[`${prefix}FactOrdersCard`].textContent = fmtNumber(factOrders);
+  els[`${prefix}DeltaOrdersCard`].textContent = delta === null ? "—" : `${delta >= 0 ? "+" : ""}${fmtNumber(delta)}`;
+  els[`${prefix}PlanMarginCard`].textContent = fmtMoney(planMargin);
+  els[`${prefix}SupplyCard`].textContent = `${fmtInt(supplyNeed)} шт`;
+  els[`${prefix}PlanNote`].textContent = `План ${monthLabelFromDate(state.date)} найден по ${matched}/${scopedArticles.length} артикулам выбранного пакета. Менеджер заполняет только статус и комментарий.`;
+}
+
+function handleManagerTableChange(tabKey, event) {
+  const sellerArticle = event.target.dataset.sellerArticle;
+  if (!sellerArticle) return;
+  const draftRow = getManagerDraftRow(tabKey, sellerArticle);
+
+  if (event.target.classList.contains("article-status")) {
+    draftRow.status = event.target.value;
+    persistManagerDrafts();
+    updateManagerSummary(tabKey);
+  }
+}
+
+function handleManagerTableInput(tabKey, event) {
+  const sellerArticle = event.target.dataset.sellerArticle;
+  if (!sellerArticle) return;
+  const draftRow = getManagerDraftRow(tabKey, sellerArticle);
+
+  if (event.target.classList.contains("article-comment")) {
+    draftRow.comment = event.target.value;
+    persistManagerDrafts();
+  }
+}
+
+function getManagerData(tabKey) {
+  const managerName = MANAGER_TABS[tabKey].manager;
+  return state.data.plan?.managers?.[managerName] || null;
+}
+
+function getTotalPacks(managerData) {
+  const values = (managerData?.articles || []).map((item) => Number(item.packNumber || 1));
+  return values.length ? Math.max(...values) : 1;
+}
+
+function getCurrentPackNumber(managerData, dateStr) {
+  const totalPacks = getTotalPacks(managerData);
+  if (!totalPacks) return 1;
+  const anchor = state.data.plan?.cycleAnchorDate || dateStr;
+  const diff = businessDaysDiff(anchor, dateStr);
+  const mod = ((diff % totalPacks) + totalPacks) % totalPacks;
+  return mod + 1;
+}
+
+function getScopedManagerArticles(tabKey) {
+  const managerData = getManagerData(tabKey);
+  const allArticles = managerData?.articles || [];
+  const packValue = state.filters[tabKey].pack;
+  const currentPack = getCurrentPackNumber(managerData, state.date);
+
+  if (packValue === "all") return allArticles;
+  const packNo = packValue === "current" ? currentPack : Number(packValue || currentPack);
+  return allArticles.filter((item) => Number(item.packNumber || 1) === packNo);
+}
+
+function getFilteredManagerArticles(tabKey) {
+  const filter = state.filters[tabKey];
+  return getScopedManagerArticles(tabKey).filter((article) => {
+    const draftRow = getManagerDraftRow(tabKey, article.sellerArticle);
+    if (filter.priority !== "all" && article.priorityBucket !== filter.priority) return false;
+    if (filter.status !== "all" && draftRow.status !== filter.status) return false;
+    if (filter.search) {
+      const haystack = `${article.sellerArticle} ${article.name} ${article.action}`.toLowerCase();
+      if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     return true;
   });
 }
 
-function renderArticles() {
-  if (!state.dailyPack.length) {
-    const message = state.managerData?.role === "supplyCoordinator"
-      ? "Для координатора поставок пакет артикулов не используется. Ниже доступны задачи, тетрадь действий и итог дня."
-      : "На выбранную дату пакет пустой.";
-    els.articlesBody.innerHTML = `<tr><td colspan="11" class="empty-state cell-empty">${message}</td></tr>`;
-    return;
-  }
-
-  const filteredPack = getFilteredPack();
-  state.filteredPack = filteredPack;
-
-  if (!filteredPack.length) {
-    els.articlesBody.innerHTML = `<tr><td colspan="11" class="empty-state cell-empty">По выбранному фильтру артикулы не найдены. Сбросьте фильтр по приоритету, статусу или поиску.</td></tr>`;
-    return;
-  }
-
-  els.articlesBody.innerHTML = filteredPack.map((article) => {
-    const key = getArticleKey(article);
-    const articleState = state.articleStates[key] || {};
-    const merged = getMergedArticleView(article);
-    const metrics = getMonthMetrics(article, state.packMeta.monthKey);
-    const dailyPlan = articleState.dailyPlan || { orders: 0, margin: 0, revenue: 0 };
-    const monthBuyout = metrics.buyout ?? article.targetBuyout ?? article.baseBuyout;
-    const metaBits = [
-      article.category ? `Категория: ${article.category}` : "",
-      article.status ? `Статус: ${article.status}` : "",
-      monthBuyout !== null && monthBuyout !== undefined && monthBuyout !== "" ? `Выкуп: ${formatPercent(monthBuyout)}` : ""
-    ].filter(Boolean).join(" · ");
-
-    const sourceComment = articleState.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "";
-    const managerTask = articleState.managerTask || merged.managerTask || article.managerTask || "Проверить цену, рекламу, остатки и выполнить план дня по артикулу.";
-    const priorityReason = articleState.priorityReason || merged.priorityReason || article.priorityReason || "";
-    const priorityBucket = articleState.priorityBucket || merged.priorityBucket || "low";
-
-    return `
-      <tr data-article-key="${escapeHtml(key)}">
-        <td><strong>${articleState.priority || "—"}</strong></td>
-        <td><span class="pill ${priorityBucket}">${getPriorityLabel(priorityBucket)}</span></td>
-        <td>
-          <div class="product-title">${getPlatformArticleId(article) ? escapeHtml(String(getPlatformArticleId(article))) : "—"}</div>
-          <div class="product-meta">${escapeHtml(article.sellerArticle || "")}</div>
-        </td>
-        <td>
-          <div class="product-title">${escapeHtml(article.name || "Без названия")}</div>
-          <div class="product-meta">${escapeHtml(metaBits)}</div>
-        </td>
-        <td class="work-cell">
-          <div class="work-title">${escapeHtml(managerTask)}</div>
-          ${sourceComment ? `<div class="product-note source-comment">Комментарий из анализа: ${escapeHtml(sourceComment)}</div>` : `<div class="product-note source-comment">Комментарий из анализа не указан.</div>`}
-          ${priorityReason ? `<div class="small-text priority-reason">Почему в приоритете: ${escapeHtml(priorityReason)}</div>` : ""}
-        </td>
-        <td>
-          <div class="metric-stack">
-            <span><strong>${formatNumber(metrics.orders)}</strong> заказов / мес</span>
-            <span><strong>${formatCurrency(metrics.marginIncome)}</strong> маржи / мес</span>
-            <span><strong>${formatCurrency(metrics.revenue)}</strong> выручки / мес</span>
-          </div>
-        </td>
-        <td>
-          <div class="metric-stack">
-            <span><strong>${formatNumber(dailyPlan.orders)}</strong> заказов / день</span>
-            <span><strong>${formatCurrency(dailyPlan.margin)}</strong> маржи / день</span>
-            <span><strong>${formatCurrency(dailyPlan.revenue)}</strong> выручки / день</span>
-          </div>
-        </td>
-        <td class="row-input">
-          <input type="number" min="0" step="0.01" data-article-field="factOrders" value="${escapeAttribute(articleState.factOrders || "")}" placeholder="0" />
-        </td>
-        <td class="row-input">
-          <input type="number" min="0" step="0.01" data-article-field="factMargin" value="${escapeAttribute(articleState.factMargin || "")}" placeholder="0" />
-        </td>
-        <td class="row-select">
-          <select data-article-field="status">
-            ${renderWorkStatusOptions(articleState.status || "not_started")}
-          </select>
-        </td>
-        <td class="row-comment">
-          <textarea rows="3" data-article-field="comment" placeholder="Что сделал по артикулу, какой вывод, что дальше">${escapeHtml(articleState.comment || "")}</textarea>
-        </td>
-      </tr>
-    `;
-  }).join("");
+function describePackSelection(tabKey) {
+  const managerData = getManagerData(tabKey);
+  const totalPacks = getTotalPacks(managerData);
+  const currentPack = getCurrentPackNumber(managerData, state.date);
+  const value = state.filters[tabKey].pack;
+  if (value === "all") return `Все (${totalPacks})`;
+  if (value === "current") return `${currentPack} / ${totalPacks}`;
+  return `${value} / ${totalPacks}`;
 }
 
-
-function renderActions() {
-  if (!state.actions.length) {
-    els.actionsList.innerHTML = `<div class="empty-state">Пока нет записей. Добавьте действие, чтобы вести тетрадь с сайта.</div>`;
-    return;
-  }
-
-  els.actionsList.innerHTML = state.actions.map((action) => {
-    const articleOptions = [`<option value="" ${!action.articleKey ? "selected" : ""}>Не привязано</option>`].concat(
-      state.dailyPack.map((article) => {
-        const key = getArticleKey(article);
-        const label = `${getPlatformArticleId(article) || "—"} · ${article.name || article.sellerArticle || "артикул"}`;
-        return `<option value="${escapeAttribute(key)}" ${action.articleKey === key ? "selected" : ""}>${escapeHtml(label)}</option>`;
-      })
-    ).join("");
-
-    return `
-    <article class="action-card" data-action-id="${escapeHtml(action.id)}">
-      <div class="action-head">
-        <div>
-          <div class="task-title">${escapeHtml(action.title || "Действие менеджера")}</div>
-          <div class="action-meta">Фиксируем, что сделали и что дальше</div>
-        </div>
-        <button type="button" class="btn btn-danger small" data-action-cmd="remove">Удалить</button>
-      </div>
-
-      <div class="action-grid">
-        <label class="field">
-          <span>Время</span>
-          <input type="time" data-action-field="time" value="${escapeAttribute(action.time || "")}" />
-        </label>
-
-        <label class="field">
-          <span>Артикул</span>
-          <select data-action-field="articleKey">
-            ${articleOptions}
-          </select>
-        </label>
-
-        <label class="field">
-          <span>Что сделал</span>
-          <input type="text" data-action-field="action" value="${escapeAttribute(action.action || "")}" placeholder="Изменил ставку, проверил цену, отработал остатки…" />
-        </label>
-
-        <label class="field">
-          <span>Результат</span>
-          <input type="text" data-action-field="result" value="${escapeAttribute(action.result || "")}" placeholder="Что получилось на выходе" />
-        </label>
-
-        <label class="field">
-          <span>Следующий шаг</span>
-          <input type="text" data-action-field="nextStep" value="${escapeAttribute(action.nextStep || "")}" placeholder="Что надо сделать дальше" />
-        </label>
-
-        <label class="field">
-          <span>Комментарий</span>
-          <input type="text" data-action-field="comment" value="${escapeAttribute(action.comment || "")}" placeholder="Любая полезная пометка" />
-        </label>
-      </div>
-    </article>
-  `;
-  }).join("");
+function getArticlePlan(article, dateStr) {
+  const ym = (dateStr || "").slice(0, 7);
+  if (article?.monthlyPlan?.[ym]) return article.monthlyPlan[ym];
+  if (article?.monthlyPlan?.["2026-04"]) return article.monthlyPlan["2026-04"];
+  return null;
 }
 
-function renderLocalHistory() {
-  const reports = getLocalReports().slice(0, 8);
-  if (!reports.length) {
-    els.localHistoryList.innerHTML = `<div class="empty-state">После сохранения отчётов здесь появится локальная история браузера.</div>`;
-    return;
-  }
-
-  els.localHistoryList.innerHTML = reports.map((report) => `
-    <article class="history-card">
-      <div>
-        <div class="history-title">${escapeHtml(report.managerName || "Менеджер")} · ${escapeHtml(report.reportDate || "")}</div>
-        <div class="history-meta">${escapeHtml(report.channel || "")} · заказов факт ${formatNumber(report.fact?.orders)} · маржи факт ${formatCurrency(report.fact?.margin)}</div>
-      </div>
-      <div class="history-actions">
-        <button type="button" class="btn btn-secondary small" data-history-fill="${escapeAttribute(report.id)}">Вставить</button>
-      </div>
-    </article>
-  `).join("");
-
-  els.localHistoryList.querySelectorAll("[data-history-fill]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const reportId = button.getAttribute("data-history-fill");
-      const report = getLocalReports().find((item) => item.id === reportId);
-      if (report) {
-        applySavedReport(report, { keepContext: true });
-        renderAll();
-        saveDraft(false);
-        showMessage("Локальный отчёт подставлен в форму.", "success");
-      }
-    });
-  });
-}
-
-function updateManagerLinkPreview() {
-  if (!state.managerKey) {
-    els.managerLinkPreview.value = "";
-    return;
-  }
-  const manager = state.managerData || {};
-  els.managerLinkPreview.value = manager.responsibility || `${manager.channel || "Роль"}: ежедневные задачи и журнал работы.`;
-}
-
-function toggleRoleSections() {
-  const isSupply = state.managerData?.role === "supplyCoordinator";
-  if (els.numbersPanel) {
-    els.numbersPanel.classList.toggle("hidden", isSupply);
-  }
-  if (els.articlesPanel) {
-    els.articlesPanel.classList.toggle("hidden", isSupply);
-  }
-  if (els.downloadPackBtn) {
-    els.downloadPackBtn.disabled = isSupply || !state.dailyPack.length;
-  }
-  if (isSupply) {
-    setBanner("Выбран координатор поставок: блок артикулов и план/факт скрыты, доступны задачи, тетрадь действий и итог дня.", "info");
-  }
-}
-
-function updateSetupState() {
-  els.submitStatusBadge.textContent = state.config.appsScriptUrl ? "Google Apps Script" : "локально";
-  const hasSheet = Boolean(state.config.googleSheetUrl);
-  if (els.openSheetBtn) {
-    els.openSheetBtn.disabled = !hasSheet;
-    els.openSheetBtn.classList.toggle("hidden", !hasSheet);
-    els.openSheetBtn.textContent = "Открыть общую таблицу";
-  }
-  if (els.openSheetBtnTop) {
-    els.openSheetBtnTop.disabled = !hasSheet;
-    els.openSheetBtnTop.classList.toggle("hidden", !hasSheet);
-  }
-  if (els.downloadPackBtn) {
-    els.downloadPackBtn.textContent = state.dailyPack.length
-      ? `Скачать пакет CSV · ${state.managerKey}`
-      : "Скачать текущий пакет CSV";
-  }
-}
-
-function handleScalarInput() {
-  renderSummary();
-  saveDraft(false);
-}
-
-function handleTaskInput(event) {
-  const card = event.target.closest("[data-task-id]");
-  if (!card) return;
-  const id = card.getAttribute("data-task-id");
-  const task = state.dynamicTasks.find((item) => item.id === id);
-  if (!task) return;
-
-  const field = event.target.getAttribute("data-task-field");
-  if (!field) return;
-  task[field] = event.target.value;
-  saveDraft(false);
-}
-
-function handleArticleInput(event) {
-  const row = event.target.closest("[data-article-key]");
-  if (!row) return;
-  const key = row.getAttribute("data-article-key");
-  const field = event.target.getAttribute("data-article-field");
-  if (!field || !state.articleStates[key]) return;
-
-  state.articleStates[key][field] = event.target.value;
-  renderSummary();
-  saveDraft(false);
-}
-
-function handleActionInput(event) {
-  const card = event.target.closest("[data-action-id]");
-  if (!card) return;
-  const id = card.getAttribute("data-action-id");
-  const action = state.actions.find((item) => item.id === id);
-  if (!action) return;
-  const field = event.target.getAttribute("data-action-field");
-  if (!field) return;
-  action[field] = event.target.value;
-  saveDraft(false);
-}
-
-function handleActionClick(event) {
-  const button = event.target.closest("[data-action-cmd]");
-  if (!button) return;
-  const card = button.closest("[data-action-id]");
-  if (!card) return;
-  const id = card.getAttribute("data-action-id");
-
-  if (button.getAttribute("data-action-cmd") === "remove") {
-    state.actions = state.actions.filter((item) => item.id !== id);
-    if (!state.actions.length) {
-      state.actions = [];
-    }
-    renderActions();
-    saveDraft(false);
-  }
-}
-
-function addActionRow() {
-  state.actions.push(makeEmptyAction());
-  renderActions();
-  saveDraft(false);
-}
-
-function makeEmptyAction() {
-  return {
-    id: cryptoRandomId(),
-    title: "Действие менеджера",
-    time: "",
-    articleKey: "",
-    action: "",
-    result: "",
-    nextStep: "",
-    comment: ""
-  };
-}
-
-function saveDraft(showFeedback = false) {
-  const payload = serializeCurrentReport();
-  const key = getDraftKey();
-  try {
-    localStorage.setItem(key, JSON.stringify(payload));
-    if (showFeedback) {
-      showMessage("Черновик сохранён в браузере.", "success");
-    }
-  } catch (error) {
-    console.error(error);
-    if (showFeedback) {
-      showMessage("Не удалось сохранить черновик в браузере.", "error");
-    }
-  }
-}
-
-function restoreDraft() {
-  const key = getDraftKey();
-  const raw = localStorage.getItem(key);
-  if (raw) {
-    try {
-      const payload = JSON.parse(raw);
-      applySavedReport(payload, { keepContext: true });
-      showMessage("Подтянула черновик для текущего сотрудника и даты.", "success");
-      return;
-    } catch (error) {
-      console.error(error);
-    }
-  }
-
-  resetFieldsForFreshContext();
-  state.currentReportId = cryptoRandomId();
-}
-
-function resetFieldsForFreshContext() {
-  els.dayFocus.value = "";
-  els.overallStatus.value = "green";
-  els.ordersFact.value = "";
-  els.marginFact.value = "";
-  els.revenueFact.value = "";
-  els.numbersComment.value = "";
-  els.doneSummary.value = "";
-  els.blockers.value = "";
-  els.helpNeeded.value = "";
-  els.tomorrowFocus.value = "";
-  els.department.value = state.managerData ? (state.managerData.department || "") : "";
-
-  state.dynamicTasks = state.dynamicTasks.map((task) => ({ ...task, status: "", comment: "" }));
-  Object.keys(state.articleStates).forEach((key) => {
-    state.articleStates[key] = {
-      ...state.articleStates[key],
-      status: "",
-      comment: "",
-      factOrders: "",
-      factMargin: "",
-      factRevenue: ""
+function getManagerDraft(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const key = `${meta.manager}|${state.date}`;
+  if (!state.managerDrafts[key]) {
+    state.managerDrafts[key] = {
+      reportDate: state.date,
+      manager: meta.manager,
+      channel: meta.channel,
+      dayComment: "",
+      needHelp: "",
+      articles: {}
     };
-  });
-  state.actions = [makeEmptyAction()];
-}
-
-function clearCurrentDraft() {
-  localStorage.removeItem(getDraftKey());
-  const keepManager = state.managerKey;
-  const keepDate = els.reportDate.value;
-  els.dayFocus.value = "";
-  els.overallStatus.value = "green";
-  els.ordersFact.value = "";
-  els.marginFact.value = "";
-  els.revenueFact.value = "";
-  els.numbersComment.value = "";
-  els.doneSummary.value = "";
-  els.blockers.value = "";
-  els.helpNeeded.value = "";
-  els.tomorrowFocus.value = "";
-  els.department.value = state.managerData ? (state.managerData.department || "") : "";
-  state.dynamicTasks.forEach((task) => {
-    task.status = "";
-    task.comment = "";
-  });
-  Object.values(state.articleStates).forEach((article) => {
-    article.status = "";
-    article.comment = "";
-    article.factOrders = "";
-    article.factMargin = "";
-    article.factRevenue = "";
-  });
-  state.actions = [makeEmptyAction()];
-  state.currentReportId = cryptoRandomId();
-  renderAll();
-  showMessage(`Черновик для ${keepManager} на ${keepDate} очищен.`, "warn");
-}
-
-function fillFromLastReport() {
-  const reports = getLocalReports().filter((report) => report.managerName === state.managerKey);
-  if (!reports.length) {
-    showMessage("Для этого менеджера ещё нет локально сохранённых отчётов.", "warn");
-    return;
   }
-  applySavedReport(reports[0], { keepContext: true });
-  renderAll();
-  saveDraft(false);
-  showMessage("Последний локальный отчёт подставлен в форму.", "success");
+  return state.managerDrafts[key];
 }
 
-function syncFactsFromRows() {
-  const totals = getArticleFactTotals();
-  els.ordersFact.value = totals.orders ? roundForInput(totals.orders) : "";
-  els.marginFact.value = totals.margin ? roundForInput(totals.margin) : "";
-  els.revenueFact.value = totals.revenue ? roundForInput(totals.revenue) : "";
-  renderSummary();
-  saveDraft(false);
-  showMessage("Факт по заказам, марже и выручке подтянут из строк артикулов.", "success");
+function getManagerDraftRow(tabKey, sellerArticle) {
+  const draft = getManagerDraft(tabKey);
+  if (!draft.articles[sellerArticle]) {
+    draft.articles[sellerArticle] = { status: "not-started", comment: "" };
+  }
+  return draft.articles[sellerArticle];
 }
 
-function exportCurrentJson() {
-  const payload = serializeCurrentReport();
-  const fileName = `manager-report-${payload.managerName || "manager"}-${payload.reportDate || "date"}.json`;
-  downloadText(fileName, JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+function persistManagerDrafts() {
+  saveStorage("tekstilno-v9-manager-drafts", state.managerDrafts);
 }
 
-function asyncFormSubmit(url, fields) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = url;
-  form.target = "submitFrame";
-  form.style.display = "none";
-
-  Object.entries(fields).forEach(([name, value]) => {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = name;
-    input.value = typeof value === "string" ? value : JSON.stringify(value);
-    form.appendChild(input);
-  });
-
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
+function exportManagerCurrent(tabKey) {
+  const payload = buildManagerPayload(tabKey);
+  downloadJson(payload, `manager-${payload.channel.toLowerCase()}-${payload.reportDate}.json`);
 }
 
-function submitReport() {
-  const payload = serializeCurrentReport();
-  saveReportToLocalHistory(payload);
-  saveDraft(false);
+async function submitManager(tabKey) {
+  const payload = buildManagerPayload(tabKey);
+  const entry = {
+    id: payload.id,
+    type: "manager",
+    manager: payload.manager,
+    channel: payload.channel,
+    reportDate: payload.reportDate,
+    submittedAt: payload.submittedAt,
+    summary: payload.sourceSummary,
+    source: "local",
+    payload
+  };
+  state.localSubmissions.unshift(entry);
+  trimLocalSubmissions();
+  persistLocalSubmissions();
+  renderLeaderFilters();
+  renderLeaderView();
 
   if (state.config.appsScriptUrl) {
-    asyncFormSubmit(state.config.appsScriptUrl, {
-      reportId: payload.id,
-      reportDate: payload.reportDate,
-      managerName: payload.managerName,
-      channel: payload.channel,
-      department: payload.department,
-      overallStatus: payload.overallStatus,
-      dayFocus: payload.dayFocus,
-      packNo: String(payload.pack.packNo || ""),
-      packCount: String(payload.pack.packCount || ""),
-      packSize: String(payload.pack.packSize || ""),
-      monthKey: payload.pack.monthKey || "",
-      planOrders: String(payload.plan.orders || ""),
-      factOrders: String(payload.fact.orders || ""),
-      planMargin: String(payload.plan.margin || ""),
-      factMargin: String(payload.fact.margin || ""),
-      planRevenue: String(payload.plan.revenue || ""),
-      factRevenue: String(payload.fact.revenue || ""),
-      numbersComment: payload.numbersComment || "",
-      doneSummary: payload.doneSummary || "",
-      blockers: payload.blockers || "",
-      helpNeeded: payload.helpNeeded || "",
-      tomorrowFocus: payload.tomorrowFocus || "",
-      tasksJson: JSON.stringify(payload.tasks),
-      articleFactsJson: JSON.stringify(payload.articles),
-      actionJournalJson: JSON.stringify(payload.actions),
-      rawJson: JSON.stringify(payload),
-      source: "github-pages",
-      pageUrl: window.location.href,
-      submittedAtLocal: new Date().toISOString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
-      userAgent: navigator.userAgent || ""
-    });
-    showMessage("Отчёт сохранён локально и отправлен в Apps Script.", "success");
-  } else {
-    showMessage("Отчёт сохранён локально. Чтобы отчёты стекались в одну таблицу, позже добавьте appsScriptUrl и googleSheetUrl в config.js.", "warn");
-  }
-
-  if (state.config.clearAfterSubmit) {
-    clearCurrentDraft();
-  } else {
-    renderLocalHistory();
-  }
-}
-
-function saveReportToLocalHistory(payload) {
-  const reports = getLocalReports();
-  const next = [payload, ...reports.filter((item) => item.id !== payload.id)].slice(0, state.config.maxLocalReports || 40);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
-}
-
-function getLocalReports() {
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-  } catch (error) {
-    console.error(error);
-    return [];
-  }
-}
-
-
-function applySavedReport(report, { keepContext = false } = {}) {
-  if (!keepContext) {
-    if (report.managerName && state.planData.managers[report.managerName]) {
-      const manager = state.planData.managers[report.managerName];
-      const channel = getManagerChannel(manager);
-      state.currentChannel = channel;
-      els.channelFilter.value = channel;
-      hydrateManagers({ preserveManager: false });
-      els.managerSelect.value = report.managerName;
+    try {
+      await postToAppsScript({ action: "submitManagerReport", id: payload.id, payload });
+      showToast(`Пакет ${payload.channel} сдан и отправлен в Apps Script.`);
+    } catch (error) {
+      console.error(error);
+      showToast(`Пакет сохранён локально, но Apps Script не ответил.`);
     }
-    if (report.reportDate) {
-      els.reportDate.value = report.reportDate;
+  } else {
+    showToast(`Пакет ${payload.channel} сохранён локально. Для общей видимости подключи Apps Script.`);
+  }
+}
+
+function buildManagerPayload(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const draft = getManagerDraft(tabKey);
+  const articles = getScopedManagerArticles(tabKey);
+  const packLabel = describePackSelection(tabKey);
+  const packCurrent = getCurrentPackNumber(getManagerData(tabKey), state.date);
+
+  const packArticles = articles.map((article) => {
+    const row = getManagerDraftRow(tabKey, article.sellerArticle);
+    const plan = getArticlePlan(article, state.date);
+    return {
+      sellerArticle: article.sellerArticle,
+      platformArticle: displayPlatformArticle(article),
+      name: article.name,
+      category: article.category,
+      priorityLabel: article.priorityLabel,
+      priorityBucket: article.priorityBucket,
+      action: article.action,
+      reason: article.reason,
+      status: row.status,
+      comment: row.comment,
+      packNumber: article.packNumber,
+      planOrdersDay: plan?.planOrdersDay ?? null,
+      planRevenueDay: plan?.planRevenueDay ?? null,
+      planMarginIncomeDay: plan?.planMarginIncomeDay ?? null,
+      factOrdersDay: article.metrics?.factOrdersDay ?? null,
+      factMoneyDay: article.metrics?.factMoneyDay ?? null,
+      factMoneyLabel: article.metrics?.factMoneyLabel ?? null,
+      mpStock: article.metrics?.mpStock ?? null,
+      coverageDays: article.metrics?.coverageDays ?? null,
+      supplyNeed: article.metrics?.supplyNeed ?? null
+    };
+  });
+
+  const summary = summarizeManagerArticles(packArticles);
+  const submittedAt = new Date().toISOString();
+
+  return {
+    id: createId("mgr"),
+    type: "manager",
+    submittedAt,
+    reportDate: state.date,
+    manager: meta.manager,
+    channel: meta.channel,
+    packSelection: state.filters[tabKey].pack,
+    packLabel,
+    currentPackNumber: packCurrent,
+    articleCount: packArticles.length,
+    doneCount: summary.doneCount,
+    blockedCount: summary.blockedCount,
+    helpCount: summary.helpCount,
+    toSupplyCount: summary.toSupplyCount,
+    dayComment: draft.dayComment || "",
+    needHelp: draft.needHelp || "",
+    summaryMetrics: summary.metrics,
+    sourceSummary: `${summary.doneCount}/${packArticles.length} сделано · ${summary.toSupplyCount} в поставки · ${summary.blockedCount + summary.helpCount} требуют внимания`,
+    packArticles
+  };
+}
+
+function summarizeManagerArticles(packArticles) {
+  const doneCount = packArticles.filter((item) => item.status === "done").length;
+  const blockedCount = packArticles.filter((item) => item.status === "blocked").length;
+  const helpCount = packArticles.filter((item) => item.status === "need-help").length;
+  const toSupplyCount = packArticles.filter((item) => item.status === "to-supply").length;
+  return {
+    doneCount,
+    blockedCount,
+    helpCount,
+    toSupplyCount,
+    metrics: {
+      planOrdersDay: sum(packArticles.map((item) => item.planOrdersDay)),
+      factOrdersDay: sum(packArticles.map((item) => item.factOrdersDay)),
+      planMarginIncomeDay: sum(packArticles.map((item) => item.planMarginIncomeDay)),
+      supplyNeed: sum(packArticles.map((item) => item.supplyNeed))
     }
-    refreshContext({ shouldRestoreDraft: false });
+  };
+}
+
+function renderSuppliesControls() {
+  if (!state.data.clusters) return;
+  els.suppliesChannel.value = state.filters.supplies.channel;
+  els.suppliesTargetDays.value = String(state.filters.supplies.targetDays || 21);
+  populateSuppliesArticleSelect();
+  const draft = getSuppliesDraft();
+  els.suppliesCoordinator.value = draft.coordinator || "";
+}
+
+function populateSuppliesArticleSelect() {
+  const channel = state.filters.supplies.channel;
+  const options = getSupplyArticleOptions(channel);
+  if (!options.length) {
+    els.suppliesArticleSelect.innerHTML = `<option value="">Нет данных</option>`;
+    state.filters.supplies.sellerArticle = "";
+    return;
+  }
+  if (!state.filters.supplies.sellerArticle || !options.some((opt) => opt.value === state.filters.supplies.sellerArticle)) {
+    state.filters.supplies.sellerArticle = options[0].value;
+  }
+  els.suppliesArticleSelect.innerHTML = options.map((opt) => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join("");
+  els.suppliesArticleSelect.value = state.filters.supplies.sellerArticle;
+}
+
+function getSupplyArticleOptions(channel) {
+  const rows = channel === "WB" ? (state.data.clusters?.wbRows || []) : (state.data.clusters?.ozonRows || []);
+  const map = new Map();
+  rows.forEach((row) => {
+    const sellerArticle = row.sellerArticle;
+    if (!sellerArticle) return;
+    if (!map.has(sellerArticle)) {
+      const articleName = row.name || row.title || sellerArticle;
+      map.set(sellerArticle, {
+        value: sellerArticle,
+        label: `${sellerArticle} — ${articleName}`
+      });
+    }
+  });
+  return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, "ru"));
+}
+
+function getSupplyRows(channel, sellerArticle) {
+  if (!sellerArticle) return [];
+  const rows = channel === "WB" ? (state.data.clusters?.wbRows || []) : (state.data.clusters?.ozonRows || []);
+  return rows.filter((row) => row.sellerArticle === sellerArticle);
+}
+
+function getSupplyRowKey(channel, row) {
+  if (channel === "WB") return `WB|${row.region || row.platformArticle || row.sellerArticle}`;
+  return `Ozon|${row.shippingWarehouseKey || row.shippingWarehouse || row.deliveryCluster || row.platformArticle}`;
+}
+
+function getSuppliesDraft() {
+  const key = `${state.date}|${state.filters.supplies.channel}|${state.filters.supplies.sellerArticle || "_"}`;
+  if (!state.suppliesDrafts[key]) {
+    state.suppliesDrafts[key] = {
+      reportDate: state.date,
+      channel: state.filters.supplies.channel,
+      sellerArticle: state.filters.supplies.sellerArticle || "",
+      targetDays: state.filters.supplies.targetDays,
+      coordinator: "",
+      rows: {}
+    };
+  }
+  return state.suppliesDrafts[key];
+}
+
+function getSuppliesDraftRow(rowKey) {
+  const draft = getSuppliesDraft();
+  if (!draft.rows[rowKey]) {
+    draft.rows[rowKey] = {
+      inTransit: "",
+      inProduction: "",
+      inPurchase: "",
+      plannedShip: "",
+      eta: "",
+      status: "draft",
+      comment: ""
+    };
+  }
+  return draft.rows[rowKey];
+}
+
+function persistSuppliesDrafts() {
+  saveStorage("tekstilno-v9-supplies-drafts", state.suppliesDrafts);
+}
+
+function renderSuppliesView() {
+  if (!state.data.clusters) return;
+  const channel = state.filters.supplies.channel;
+  const sellerArticle = state.filters.supplies.sellerArticle;
+  const rows = getSupplyRows(channel, sellerArticle);
+  const draft = getSuppliesDraft();
+  draft.channel = channel;
+  draft.sellerArticle = sellerArticle;
+  draft.targetDays = Number(els.suppliesTargetDays.value || state.filters.supplies.targetDays || 21);
+  els.suppliesCoordinator.value = draft.coordinator || "";
+
+  if (!rows.length) {
+    els.suppliesTitleCard.textContent = "—";
+    els.suppliesMainStockCard.textContent = "—";
+    els.suppliesPlatformStockCard.textContent = "—";
+    els.suppliesDemandCard.textContent = "—";
+    els.suppliesRecommendedCard.textContent = "—";
+    els.suppliesRowsCard.textContent = "0";
+    els.suppliesRowsBody.innerHTML = `<tr><td colspan="13"><div class="empty-state">Нет строк по выбранному артикулу.</div></td></tr>`;
+    els.suppliesHint.textContent = "Выбери площадку и артикул — сайт подтянет строки кластеров.";
+    return;
   }
 
-  els.department.value = report.department || (state.managerData?.department || "");
-  els.dayFocus.value = report.dayFocus || "";
-  els.overallStatus.value = report.overallStatus || "green";
-  els.ordersFact.value = report.fact?.orders ?? "";
-  els.marginFact.value = report.fact?.margin ?? "";
-  els.revenueFact.value = report.fact?.revenue ?? "";
-  els.numbersComment.value = report.numbersComment || "";
-  els.doneSummary.value = report.doneSummary || "";
-  els.blockers.value = report.blockers || "";
-  els.helpNeeded.value = report.helpNeeded || "";
-  els.tomorrowFocus.value = report.tomorrowFocus || "";
+  const normalizedRows = rows.map((row) => normalizeSupplyRow(channel, row, draft.targetDays));
+  const totalMain = maxValue(normalizedRows.map((row) => row.mainWarehouseStock));
+  const totalPlatform = sum(normalizedRows.map((row) => row.currentStock));
+  const totalDemand = sum(normalizedRows.map((row) => row.avgDailyOrders));
+  const totalRecommended = sum(normalizedRows.map((row) => row.recommendedShipQty));
+  const first = normalizedRows[0];
 
-  const taskById = Object.fromEntries((report.tasks || []).map((task) => [task.id, task]));
-  state.dynamicTasks = state.dynamicTasks.map((task) => ({
-    ...task,
-    status: taskById[task.id]?.status || "",
-    comment: taskById[task.id]?.comment || ""
+  els.suppliesTitleCard.textContent = first.name || sellerArticle;
+  els.suppliesMainStockCard.textContent = `${fmtInt(totalMain)} шт`;
+  els.suppliesPlatformStockCard.textContent = `${fmtInt(totalPlatform)} шт`;
+  els.suppliesDemandCard.textContent = fmtNumber(totalDemand);
+  els.suppliesRecommendedCard.textContent = `${fmtInt(totalRecommended)} шт`;
+  els.suppliesRowsCard.textContent = String(normalizedRows.length);
+  els.suppliesHint.textContent = `${channel}: расчёт по ${normalizedRows.length} строкам. Координатор заполняет только поставку, производство, закупку, ETA и комментарий.`;
+
+  els.suppliesRowsBody.innerHTML = normalizedRows.map((row) => renderSuppliesRow(channel, row)).join("");
+}
+
+function normalizeSupplyRow(channel, row, targetDays) {
+  const rowKey = getSupplyRowKey(channel, row);
+  const draftRow = getSuppliesDraftRow(rowKey);
+  const avgDailyOrders = asNumber(row.avgDailyOrders) ?? 0;
+  const currentStock = channel === "WB"
+    ? (asNumber(row.wbWarehouseStock) ?? asNumber(row.marketplaceStock) ?? 0)
+    : (asNumber(row.warehouseStock) ?? asNumber(row.platformStock) ?? 0);
+  const mainWarehouseStock = asNumber(row.mainWarehouseStock) ?? 0;
+  const inTransit = asNumber(draftRow.inTransit) ?? 0;
+  const inProduction = asNumber(draftRow.inProduction) ?? 0;
+  const inPurchase = asNumber(draftRow.inPurchase) ?? 0;
+  const plannedShip = asNumber(draftRow.plannedShip) ?? 0;
+  const baseNeed = Math.max(0, Math.ceil(avgDailyOrders * targetDays - (currentStock + inTransit + inProduction + inPurchase)));
+  const coverDaysTotal = avgDailyOrders > 0 ? round2((currentStock + inTransit + inProduction + inPurchase + plannedShip) / avgDailyOrders) : null;
+  const turnoverDays = avgDailyOrders > 0 ? round2(currentStock / avgDailyOrders) : null;
+
+  return {
+    rowKey,
+    channel,
+    sellerArticle: row.sellerArticle,
+    platformArticle: displayMaybeNumber(row.platformArticle),
+    name: row.name || row.title || row.sellerArticle,
+    clusterName: channel === "WB"
+      ? (row.region || "WB кластер")
+      : [row.deliveryCluster, row.shippingWarehouse].filter(Boolean).join(" · "),
+    orders7d: asNumber(row.orders7d),
+    avgDailyOrders,
+    currentStock,
+    mainWarehouseStock,
+    recommendedShipQty: baseNeed,
+    turnoverDays,
+    coverDaysTotal,
+    inTransit,
+    inProduction,
+    inPurchase,
+    plannedShip,
+    eta: draftRow.eta || "",
+    status: draftRow.status || "draft",
+    comment: draftRow.comment || ""
+  };
+}
+
+function renderSuppliesRow(channel, row) {
+  return `
+    <tr data-row-key="${escapeHtml(row.rowKey)}">
+      <td>${escapeHtml(row.clusterName || "—")}</td>
+      <td>${fmtNumber(row.orders7d)}</td>
+      <td>${fmtNumber(row.avgDailyOrders)}</td>
+      <td>${fmtInt(row.currentStock)}</td>
+      <td>${fmtNumber(row.turnoverDays)}</td>
+      <td><input type="number" class="status-select small-input supply-num" data-field="inTransit" value="${escapeAttr(row.inTransit)}" min="0" step="1" /></td>
+      <td><input type="number" class="status-select small-input supply-num" data-field="inProduction" value="${escapeAttr(row.inProduction)}" min="0" step="1" /></td>
+      <td><input type="number" class="status-select small-input supply-num" data-field="inPurchase" value="${escapeAttr(row.inPurchase)}" min="0" step="1" /></td>
+      <td>${fmtInt(row.recommendedShipQty)}</td>
+      <td><input type="number" class="status-select small-input supply-num" data-field="plannedShip" value="${escapeAttr(row.plannedShip)}" min="0" step="1" /></td>
+      <td><input type="text" class="status-select eta-input supply-text" data-field="eta" value="${escapeAttr(row.eta)}" placeholder="напр. 3 дня" /></td>
+      <td>
+        <select class="status-select supply-select" data-field="status">
+          ${SUPPLY_STATUS_OPTIONS.map((opt) => `<option value="${opt.value}" ${row.status === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("")}
+        </select>
+      </td>
+      <td><textarea class="row-input supply-text" data-field="comment" rows="3" placeholder="Что уже делаем по строке">${escapeHtml(row.comment)}</textarea></td>
+    </tr>
+  `;
+}
+
+function handleSuppliesRowsChange(event) {
+  const tr = event.target.closest("tr[data-row-key]");
+  if (!tr) return;
+  const rowKey = tr.dataset.rowKey;
+  const draftRow = getSuppliesDraftRow(rowKey);
+  const field = event.target.dataset.field;
+  if (!field) return;
+
+  draftRow[field] = event.target.value;
+  persistSuppliesDrafts();
+
+  if (["inTransit", "inProduction", "inPurchase", "plannedShip", "status", "eta"].includes(field)) {
+    renderSuppliesView();
+  }
+}
+
+function handleSuppliesRowsInput(event) {
+  const tr = event.target.closest("tr[data-row-key]");
+  if (!tr) return;
+  const rowKey = tr.dataset.rowKey;
+  const draftRow = getSuppliesDraftRow(rowKey);
+  const field = event.target.dataset.field;
+  if (!field) return;
+
+  draftRow[field] = event.target.value;
+  persistSuppliesDrafts();
+}
+
+function exportSuppliesCurrent() {
+  const payload = buildSuppliesPayload();
+  downloadJson(payload, `supplies-${payload.channel.toLowerCase()}-${payload.reportDate}.json`);
+}
+
+async function submitSupplies() {
+  const payload = buildSuppliesPayload();
+  const entry = {
+    id: payload.id,
+    type: "cluster",
+    manager: payload.coordinator,
+    channel: payload.channel,
+    reportDate: payload.reportDate,
+    submittedAt: payload.submittedAt,
+    summary: payload.sourceSummary,
+    source: "local",
+    payload
+  };
+  state.localSubmissions.unshift(entry);
+  trimLocalSubmissions();
+  persistLocalSubmissions();
+  renderLeaderFilters();
+  renderLeaderView();
+
+  if (state.config.appsScriptUrl) {
+    try {
+      await postToAppsScript({ action: "submitClusterForm", id: payload.id, payload });
+      showToast(`Форма поставок ${payload.channel} сдана и отправлена в Apps Script.`);
+    } catch (error) {
+      console.error(error);
+      showToast("Форма поставок сохранена локально, но Apps Script не ответил.");
+    }
+  } else {
+    showToast("Форма поставок сохранена локально.");
+  }
+}
+
+function buildSuppliesPayload() {
+  const channel = state.filters.supplies.channel;
+  const sellerArticle = state.filters.supplies.sellerArticle;
+  const rows = getSupplyRows(channel, sellerArticle).map((row) => normalizeSupplyRow(channel, row, state.filters.supplies.targetDays));
+  const draft = getSuppliesDraft();
+  const first = rows[0] || {};
+  const summary = {
+    recommendedShipQty: sum(rows.map((row) => row.recommendedShipQty)),
+    plannedShipQty: sum(rows.map((row) => asNumber(row.plannedShip))),
+    blockers: rows.filter((row) => row.status === "blocked").length
+  };
+  const submittedAt = new Date().toISOString();
+
+  return {
+    id: createId("sup"),
+    type: "cluster",
+    submittedAt,
+    reportDate: state.date,
+    coordinator: draft.coordinator || "",
+    channel,
+    sellerArticle,
+    platformArticle: first.platformArticle || "",
+    name: first.name || sellerArticle,
+    targetDays: draft.targetDays || state.filters.supplies.targetDays,
+    mainWarehouseStock: maxValue(rows.map((row) => row.mainWarehouseStock)),
+    platformStock: sum(rows.map((row) => row.currentStock)),
+    sourceSummary: `${rows.length} строк · рекоменд. ${fmtInt(summary.recommendedShipQty)} шт · план ${fmtInt(summary.plannedShipQty)} шт`,
+    blockersCount: summary.blockers,
+    rows
+  };
+}
+
+function persistLocalSubmissions() {
+  saveStorage("tekstilno-v9-local-submissions", state.localSubmissions);
+}
+
+function trimLocalSubmissions() {
+  const max = Number(state.config.maxLocalSubmissions || 500);
+  if (state.localSubmissions.length > max) {
+    state.localSubmissions = state.localSubmissions.slice(0, max);
+  }
+}
+
+function renderLeaderFilters() {
+  const options = getAllJournalEntries().map((entry) => entry.manager).filter(Boolean);
+  const unique = Array.from(new Set(options)).sort((a, b) => a.localeCompare(b, "ru"));
+  const current = state.filters.leader.manager || "all";
+  els.leaderManagerFilter.innerHTML = `<option value="all">Все</option>` + unique.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  els.leaderManagerFilter.value = unique.includes(current) ? current : "all";
+  state.filters.leader.manager = els.leaderManagerFilter.value;
+}
+
+function renderLeaderView() {
+  const entries = getFilteredJournalEntries();
+  els.leaderTotalCard.textContent = String(entries.length);
+  els.leaderManagerCard.textContent = String(entries.filter((item) => item.type === "manager").length);
+  els.leaderClusterCard.textContent = String(entries.filter((item) => item.type === "cluster").length);
+  els.leaderIssuesCard.textContent = String(entries.filter((item) => entryHasIssues(item)).length);
+
+  if (!entries.length) {
+    els.leaderFeedBody.innerHTML = `<tr><td colspan="6"><div class="empty-state">Пока нет записей по текущим фильтрам.</div></td></tr>`;
+    if (!state.selectedLeaderId) {
+      els.leaderDetails.innerHTML = `<h3>Детали записи</h3><p class="muted">Пока нечего показывать.</p>`;
+    }
+    return;
+  }
+
+  if (!state.selectedLeaderId || !entries.some((item) => item.id === state.selectedLeaderId)) {
+    state.selectedLeaderId = entries[0].id;
+  }
+
+  els.leaderFeedBody.innerHTML = entries.map((entry) => renderLeaderRow(entry)).join("");
+  const selected = entries.find((item) => item.id === state.selectedLeaderId);
+  renderLeaderDetails(selected || entries[0]);
+}
+
+function renderLeaderRow(entry) {
+  const activeClass = entry.id === state.selectedLeaderId ? "active" : "";
+  const submittedAt = formatDateTime(entry.submittedAt);
+  const sourceLabel = entry.source === "remote" ? "Apps Script" : "локально";
+  const typeLabel = entry.type === "manager" ? "Пакет" : "Поставки";
+  return `
+    <tr class="leader-row ${activeClass}" data-entry-id="${escapeHtml(entry.id)}">
+      <td>${escapeHtml(submittedAt)}</td>
+      <td>${escapeHtml(entry.manager || "—")}</td>
+      <td>${escapeHtml(typeLabel)}</td>
+      <td>${escapeHtml(entry.channel || "—")}</td>
+      <td>${escapeHtml(entry.summary || "—")}</td>
+      <td>${escapeHtml(sourceLabel)}</td>
+    </tr>
+  `;
+}
+
+function handleLeaderFeedClick(event) {
+  const tr = event.target.closest("tr[data-entry-id]");
+  if (!tr) return;
+  state.selectedLeaderId = tr.dataset.entryId;
+  renderLeaderView();
+}
+
+function renderLeaderDetails(entry) {
+  if (!entry) {
+    els.leaderDetails.innerHTML = `<h3>Детали записи</h3><p class="muted">Выбери строку слева.</p>`;
+    return;
+  }
+
+  if (entry.type === "manager") {
+    const payload = entry.payload || {};
+    const rows = Array.isArray(payload.packArticles) ? payload.packArticles : [];
+    els.leaderDetails.innerHTML = `
+      <h3>${escapeHtml(entry.channel)} · ${escapeHtml(entry.manager || "—")}</h3>
+      <p class="muted">${escapeHtml(formatDateTime(entry.submittedAt))} · ${escapeHtml(entry.summary || "")}</p>
+      <div class="detail-block">
+        <h4>Комментарий по дню</h4>
+        <p>${escapeHtml(payload.dayComment || "—")}</p>
+      </div>
+      <div class="detail-block">
+        <h4>Нужна помощь</h4>
+        <p>${escapeHtml(payload.needHelp || "—")}</p>
+      </div>
+      <div class="detail-block">
+        <h4>Статусы по артикулу</h4>
+        ${rows.length ? `
+        <table>
+          <thead><tr><th>Артикул</th><th>Приоритет</th><th>Статус</th><th>Комментарий</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td>${escapeHtml(row.sellerArticle || "")}</td>
+                <td>${escapeHtml(row.priorityLabel || "")}</td>
+                <td>${escapeHtml(statusLabel(row.status))}</td>
+                <td>${escapeHtml(row.comment || "—")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>` : `<p class="muted">Внутри записи нет строк.</p>`}
+      </div>
+    `;
+    return;
+  }
+
+  const payload = entry.payload || {};
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  els.leaderDetails.innerHTML = `
+    <h3>${escapeHtml(entry.channel)} · Поставки</h3>
+    <p class="muted">${escapeHtml(formatDateTime(entry.submittedAt))} · ${escapeHtml(entry.summary || "")}</p>
+    <div class="detail-block">
+      <h4>Координатор</h4>
+      <p>${escapeHtml(payload.coordinator || "—")}</p>
+    </div>
+    <div class="detail-block">
+      <h4>Артикул</h4>
+      <p>${escapeHtml(payload.sellerArticle || "—")} · ${escapeHtml(payload.name || "—")}</p>
+    </div>
+    <div class="detail-block">
+      <h4>Строки по кластерам</h4>
+      ${rows.length ? `
+      <table>
+        <thead><tr><th>Кластер</th><th>Нужно</th><th>План</th><th>Статус</th><th>Комментарий</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.clusterName || "—")}</td>
+              <td>${fmtInt(row.recommendedShipQty)}</td>
+              <td>${fmtInt(asNumber(row.plannedShip))}</td>
+              <td>${escapeHtml(supplyStatusLabel(row.status))}</td>
+              <td>${escapeHtml(row.comment || "—")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>` : `<p class="muted">Строки не заполнены.</p>`}
+    </div>
+  `;
+}
+
+function getFilteredJournalEntries() {
+  const entries = getAllJournalEntries();
+  return entries.filter((entry) => {
+    if (state.filters.leader.date && entry.reportDate !== state.filters.leader.date) return false;
+    if (state.filters.leader.type !== "all" && entry.type !== state.filters.leader.type) return false;
+    if (state.filters.leader.manager !== "all" && entry.manager !== state.filters.leader.manager) return false;
+    if (state.filters.leader.source !== "all" && entry.source !== state.filters.leader.source) return false;
+    return true;
+  });
+}
+
+function getAllJournalEntries() {
+  const local = state.localSubmissions.map((entry) => ({
+    ...entry,
+    source: "local"
   }));
 
-  const articleByKey = Object.fromEntries((report.articles || []).map((article) => [article.key, article]));
-  Object.keys(state.articleStates).forEach((key) => {
-    const saved = articleByKey[key];
-    if (saved) {
-      state.articleStates[key] = {
-        ...state.articleStates[key],
-        status: saved.status || "",
-        comment: saved.comment || "",
-        factOrders: saved.factOrders ?? "",
-        factMargin: saved.factMargin ?? "",
-        factRevenue: saved.factRevenue ?? ""
-      };
+  const remoteManager = (state.remoteDashboard.managerSubmissions || []).map((row) => normalizeRemoteEntry(row, "manager"));
+  const remoteClusters = (state.remoteDashboard.clusterForms || []).map((row) => normalizeRemoteEntry(row, "cluster"));
+  const merged = [...remoteManager, ...remoteClusters, ...local];
+
+  const byId = new Map();
+  merged.forEach((entry) => {
+    if (!entry || !entry.id) return;
+    const existing = byId.get(entry.id);
+    if (!existing || existing.source === "local") {
+      byId.set(entry.id, entry);
     }
   });
 
-  state.actions = (report.actions && report.actions.length)
-    ? report.actions.map((action) => ({
-        id: action.id || cryptoRandomId(),
-        title: action.title || "Действие менеджера",
-        time: action.time || "",
-        articleKey: action.articleKey || "",
-        action: action.action || "",
-        result: action.result || "",
-        nextStep: action.nextStep || "",
-        comment: action.comment || ""
-      }))
-    : [makeEmptyAction()];
+  return Array.from(byId.values()).sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")));
 }
 
-
-function serializeCurrentReport() {
-  const totals = state.packMeta ? state.packMeta.totalPlan : { orders: 0, margin: 0, revenue: 0 };
-
-  return {
-    id: state.currentReportId || (state.currentReportId = cryptoRandomId()),
-    reportDate: els.reportDate.value,
-    managerName: state.managerKey,
-    channel: getManagerChannel(state.managerData) || "",
-    role: state.managerData?.role || "marketplaceManager",
-    department: els.department.value || "",
-    overallStatus: els.overallStatus.value || "green",
-    dayFocus: els.dayFocus.value || "",
-    pack: {
-      packNo: state.packMeta?.packNo || 1,
-      packCount: state.packMeta?.packCount || 1,
-      packSize: state.dailyPack.length,
-      monthKey: state.packMeta?.monthKey || "",
-      anchorDate: state.packMeta?.anchorDate || "",
-      workingDays: state.packMeta?.workingDays || 0
-    },
-    plan: {
-      orders: roundTo2(totals.orders),
-      margin: roundTo2(totals.margin),
-      revenue: roundTo2(totals.revenue)
-    },
-    fact: {
-      orders: roundTo2(toNumber(els.ordersFact.value)),
-      margin: roundTo2(toNumber(els.marginFact.value)),
-      revenue: roundTo2(toNumber(els.revenueFact.value))
-    },
-    numbersComment: els.numbersComment.value || "",
-    doneSummary: els.doneSummary.value || "",
-    blockers: els.blockers.value || "",
-    helpNeeded: els.helpNeeded.value || "",
-    tomorrowFocus: els.tomorrowFocus.value || "",
-    tasks: state.dynamicTasks.map((task) => ({ id: task.id, title: task.title, type: task.type, status: task.status || "", comment: task.comment || "" })),
-    articles: state.dailyPack.map((article) => {
-      const key = getArticleKey(article);
-      const row = state.articleStates[key] || {};
-      const merged = getMergedArticleView(article);
-      return {
-        key,
-        wbArticle: article.wbArticle || "",
-        ozonArticle: article.ozonArticle || "",
-        platformArticle: getPlatformArticleId(article) || "",
-        sellerArticle: article.sellerArticle || "",
-        name: article.name || "",
-        statusSource: article.status || "",
-        priorityBucket: row.priorityBucket || merged.priorityBucket || "",
-        priorityReason: row.priorityReason || merged.priorityReason || article.priorityReason || "",
-        managerTask: row.managerTask || merged.managerTask || article.managerTask || "",
-        sourceComment: row.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "",
-        planDailyOrders: roundTo2(row.dailyPlan?.orders || 0),
-        planDailyMargin: roundTo2(row.dailyPlan?.margin || 0),
-        planDailyRevenue: roundTo2(row.dailyPlan?.revenue || 0),
-        factOrders: row.factOrders ?? "",
-        factMargin: row.factMargin ?? "",
-        factRevenue: row.factRevenue ?? "",
-        status: row.status || "not_started",
-        comment: row.comment || ""
-      };
-    }),
-    actions: state.actions.map((action) => ({ ...action })),
-    createdAtLocal: new Date().toISOString()
-  };
-}
-
-
-function getDraftKey() {
-  return `${STORAGE_PREFIX}:draft:${state.managerKey}:${els.reportDate.value}`;
-}
-
-
-function getArticleFactTotals() {
-  return Object.values(state.articleStates).reduce((acc, row) => {
-    acc.orders += toNumber(row.factOrders);
-    acc.margin += toNumber(row.factMargin);
-    acc.revenue += toNumber(row.factRevenue);
-    return acc;
-  }, { orders: 0, margin: 0, revenue: 0 });
-}
-
-function getArticleOverride(article) {
-  const managerName = state.managerKey;
-  const dateKey = els.reportDate ? els.reportDate.value : "";
-  const defaultByManager = state.overridesData?.defaultByManager?.[managerName] || {};
-  const dateManager = state.overridesData?.byDate?.[dateKey]?.[managerName] || {};
-  const candidates = [
-    String(article.wbArticle || "").trim(),
-    String(article.ozonArticle || "").trim(),
-    String(getPlatformArticleId(article) || "").trim(),
-    String(article.sellerArticle || "").trim(),
-    getArticleKey(article)
-  ].filter(Boolean);
-
-  for (const key of candidates) {
-    if (dateManager[key]) return dateManager[key];
-  }
-  for (const key of candidates) {
-    if (defaultByManager[key]) return defaultByManager[key];
-  }
-  return {};
-}
-
-function getMergedArticleView(article) {
-  const override = getArticleOverride(article);
-  return {
-    ...article,
-    ...override,
-    priorityBucket: override.priorityBucket || article.priorityBucket || "low",
-    priorityReason: override.priorityReason || article.priorityReason || "",
-    managerTask: override.managerTask || article.managerTask || "",
-    sourceComment: override.sourceComment || article.sourceComment || article.managerComment || ""
-  };
-}
-
-function getPriorityScore(article, monthKey) {
-  const metrics = getMonthMetrics(article, monthKey);
-  const merged = getMergedArticleView(article);
-  const bucketScore = merged.priorityBucket === "critical" ? 3000000000000
-    : merged.priorityBucket === "high" ? 2000000000000
-    : merged.priorityBucket === "medium" ? 1000000000000
-    : 500000000000;
-  return bucketScore + Number(metrics.marginIncome || metrics.revenue || metrics.orders || 0);
-}
-
-function getMonthMetrics(article, monthKey) {
-  const months = article.months || {};
-  if (months[monthKey]) return months[monthKey];
-
-  const keys = Object.keys(months).sort();
-  const earlier = keys.filter((key) => key <= monthKey);
-  if (earlier.length) return months[earlier[earlier.length - 1]];
-  return keys.length ? months[keys[keys.length - 1]] : {};
-}
-
-
-function getCycleAnchorDate(date) {
-  const configured = parseDateString(state.config.cycleAnchorDate || state.planData?.cycleAnchorDate || "");
-  if (configured && configured.getFullYear() === date.getFullYear() && configured.getMonth() === date.getMonth()) {
-    return configured;
-  }
-  return getFirstBusinessDay(date.getFullYear(), date.getMonth());
-}
-
-function getFirstBusinessDay(year, monthIndex) {
-  for (let day = 1; day <= 31; day += 1) {
-    const date = new Date(year, monthIndex, day);
-    if (date.getMonth() !== monthIndex) break;
-    if (date.getDay() !== 0 && date.getDay() !== 6) return date;
-  }
-  return new Date(year, monthIndex, 1);
-}
-
-function getBusinessDayIndex(date, anchor) {
-  if (date < anchor) return 0;
-  let count = 0;
-  const cursor = new Date(anchor);
-  while (cursor <= date) {
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
-      count += 1;
+function normalizeRemoteEntry(row, type) {
+  let payload = null;
+  if (row && row.payloadJson) {
+    try {
+      payload = typeof row.payloadJson === "string" ? JSON.parse(row.payloadJson) : row.payloadJson;
+    } catch (error) {
+      payload = null;
     }
-    cursor.setDate(cursor.getDate() + 1);
   }
-  return Math.max(count - 1, 0);
+  return {
+    id: row.id,
+    type,
+    manager: row.manager || row.coordinator || "",
+    channel: row.channel || "",
+    reportDate: row.reportDate || "",
+    submittedAt: row.submittedAt || "",
+    summary: row.summary || row.sourceSummary || "",
+    source: "remote",
+    payload
+  };
 }
 
-function getWorkingDaysInMonth(date) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  let count = 0;
-  for (let day = 1; day <= lastDay; day += 1) {
-    const item = new Date(year, month, day);
-    if (item.getDay() !== 0 && item.getDay() !== 6) count += 1;
+function entryHasIssues(entry) {
+  if (entry.type === "manager") {
+    const payload = entry.payload || {};
+    return Number(payload.blockedCount || 0) > 0 || Number(payload.helpCount || 0) > 0;
   }
-  return count || 1;
+  const payload = entry.payload || {};
+  return Number(payload.blockersCount || 0) > 0;
 }
 
-function parseReportDate() {
-  return parseDateString(els.reportDate.value) || new Date();
+function exportAllData() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    managerDrafts: state.managerDrafts,
+    suppliesDrafts: state.suppliesDrafts,
+    localSubmissions: state.localSubmissions
+  };
+  downloadJson(payload, `tekstilno-backup-${state.date}.json`);
 }
 
-function parseDateString(value) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  if (!year || !month || !day) return null;
-  return new Date(year, month - 1, day);
+function importAllData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(String(reader.result || "{}"));
+      if (payload.managerDrafts && typeof payload.managerDrafts === "object") {
+        state.managerDrafts = { ...state.managerDrafts, ...payload.managerDrafts };
+      }
+      if (payload.suppliesDrafts && typeof payload.suppliesDrafts === "object") {
+        state.suppliesDrafts = { ...state.suppliesDrafts, ...payload.suppliesDrafts };
+      }
+      if (Array.isArray(payload.localSubmissions)) {
+        state.localSubmissions = [...payload.localSubmissions, ...state.localSubmissions];
+      }
+      trimLocalSubmissions();
+      persistManagerDrafts();
+      persistSuppliesDrafts();
+      persistLocalSubmissions();
+      renderAll();
+      showToast("JSON импортирован.");
+    } catch (error) {
+      console.error(error);
+      showToast("Не удалось импортировать JSON.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsText(file, "utf-8");
 }
 
-function formatDateInput(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function renderStatusOptions(selectedValue) {
-  const values = [
-    ["", "Не отмечено"],
-    ["done", "Сделано"],
-    ["in_progress", "В работе"],
-    ["blocked", "Блокер"],
-    ["postponed", "Перенесено"]
-  ];
-  return values.map(([value, label]) => `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${label}</option>`).join("");
-}
-
-
-function renderWorkStatusOptions(selectedValue) {
-  const normalized = selectedValue || "not_started";
-  const values = [
-    ["not_started", "Не начато"],
-    ["done", "Сделано"],
-    ["in_progress", "В работе"],
-    ["review", "Проверить повторно"],
-    ["blocked", "Блокер"]
-  ];
-  return values.map(([value, label]) => `<option value="${value}" ${normalized === value ? "selected" : ""}>${label}</option>`).join("");
-}
-
-function getPriorityBucket(index, total) {
-  const ratio = total ? (index + 1) / total : 1;
-  if (ratio <= 0.1) return "critical";
-  if (ratio <= 0.35) return "high";
-  if (ratio <= 0.7) return "medium";
-  return "low";
-}
-
-function getPriorityLabel(bucket) {
-  if (bucket === "critical") return "Критично";
-  if (bucket === "high") return "Высокий";
-  if (bucket === "medium") return "Средний";
-  return "Низкий";
-}
-
-function updateDeviationCell(element, plan, fact) {
-  if (!element) return;
-  if (!plan && !fact) {
-    element.textContent = "—";
-    element.className = "metric-deviation";
-    return;
-  }
-
-  const delta = roundTo2((fact || 0) - (plan || 0));
-  const ratio = plan ? `${delta >= 0 ? "+" : ""}${formatPercent(delta / plan)}` : "без плана";
-  element.textContent = `${delta >= 0 ? "+" : ""}${formatNumber(delta)} · ${ratio}`;
-  element.className = `metric-deviation ${delta >= 0 ? "positive" : "negative"}`;
-}
-
-function copyManagerLink() {
-  if (!els.managerLinkPreview.value) return;
-  navigator.clipboard.writeText(els.managerLinkPreview.value)
-    .then(() => showMessage("Описание роли скопировано.", "success"))
-    .catch(() => showMessage("Не удалось скопировать описание роли.", "error"));
-}
-
-function openSheet() {
-  if (!state.config.googleSheetUrl) {
-    showMessage("Общая таблица пока не подключена. Сайт уже работает локально; позже можно добавить googleSheetUrl в config.js.", "warn");
-    return;
-  }
-  window.open(state.config.googleSheetUrl, "_blank", "noopener,noreferrer");
-}
-
-
-function downloadCurrentPackCsv() {
-  if (!state.dailyPack.length) {
-    showMessage("Для этой роли нет пакета артикулов на скачивание.", "warn");
-    return;
-  }
-
-  const rows = [[
-    "Дата", "Площадка", "Сотрудник", "Пакет", "Приоритет", "Причина приоритета", "Артикул", "SKU", "Товар", "Что сделать сегодня", "Комментарий из анализа", "План заказов/день", "План маржи/день", "План выручки/день"
-  ]];
-
-  state.dailyPack.forEach((article) => {
-    const key = getArticleKey(article);
-    const row = state.articleStates[key] || {};
-    const merged = getMergedArticleView(article);
-    rows.push([
-      els.reportDate.value,
-      getManagerChannel(state.managerData) || "",
-      state.managerKey,
-      `${state.packMeta?.packNo || 1}/${state.packMeta?.packCount || 1}`,
-      getPriorityLabel(row.priorityBucket || merged.priorityBucket || "low"),
-      row.priorityReason || merged.priorityReason || article.priorityReason || "",
-      getPlatformArticleId(article) || "",
-      article.sellerArticle || "",
-      article.name || "",
-      row.managerTask || merged.managerTask || article.managerTask || "",
-      row.sourceComment || merged.sourceComment || article.sourceComment || article.managerComment || "",
-      roundTo2(row.dailyPlan?.orders || 0),
-      roundTo2(row.dailyPlan?.margin || 0),
-      roundTo2(row.dailyPlan?.revenue || 0)
-    ]);
+async function postToAppsScript(wrapper) {
+  const response = await fetch(state.config.appsScriptUrl, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(wrapper)
   });
-
-  const csv = rows.map((row) => row.map(csvEscape).join(";")).join("\n");
-  const safeName = slugify(`${state.managerKey}-${els.reportDate.value}`) || "pack";
-  downloadText(`pack-${safeName}.csv`, csv, "text/csv;charset=utf-8");
+  return response;
 }
 
+function countMatchedPlan(tabKey) {
+  const managerData = getManagerData(tabKey);
+  const articles = managerData?.articles || [];
+  return {
+    matched: articles.filter((article) => article.planMatch?.matched).length,
+    total: articles.length
+  };
+}
 
-function csvEscape(value) {
-  const text = String(value ?? "");
-  if (/[";\n]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
+function normalizeRemoteDashboardPayload(payload) {
+  return {
+    managerSubmissions: Array.isArray(payload.managerSubmissions) ? payload.managerSubmissions : [],
+    clusterForms: Array.isArray(payload.clusterForms) ? payload.clusterForms : []
+  };
+}
+
+function loadJsonp(url) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__tekstilno_jsonp_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const script = document.createElement("script");
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("JSONP timeout"));
+    }, 15000);
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      delete window[callbackName];
+      script.remove();
+    }
+
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error("JSONP error"));
+    };
+    script.src = `${url}${url.includes("?") ? "&" : "?"}callback=${callbackName}`;
+    document.body.appendChild(script);
+  });
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`${url} → ${response.status}`);
   }
-  return text;
+  return response.json();
 }
 
-function setBanner(text, mode = "info") {
-  els.statusBanner.textContent = text;
-  els.statusBanner.className = "banner";
-  if (mode === "error") {
-    els.statusBanner.style.background = "#fff1f1";
-    els.statusBanner.style.borderColor = "#f0c0c0";
-    els.statusBanner.style.color = "#b13636";
-  } else if (mode === "success") {
-    els.statusBanner.style.background = "#ecfbf4";
-    els.statusBanner.style.borderColor = "#bfe7d4";
-    els.statusBanner.style.color = "#177a56";
-  } else {
-    els.statusBanner.style.background = "#edf2ff";
-    els.statusBanner.style.borderColor = "#d7dfff";
-    els.statusBanner.style.color = "#2940b5";
+function versionedUrl(url) {
+  const version = encodeURIComponent(state.config.siteVersion || Date.now());
+  return `${url}${url.includes("?") ? "&" : "?"}v=${version}`;
+}
+
+function setBanner(text, kind) {
+  els.banner.textContent = text;
+  els.banner.className = `banner ${kind || ""}`.trim();
+}
+
+function showToast(text) {
+  els.toast.textContent = text;
+  els.toast.classList.add("show");
+  window.clearTimeout(showToast._timer);
+  showToast._timer = window.setTimeout(() => els.toast.classList.remove("show"), 2600);
+}
+
+function saveStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch (error) {
+    return fallback;
   }
 }
 
-function showMessage(text, mode = "success") {
-  els.formMessage.textContent = text;
-  els.formMessage.className = `form-message ${mode}`;
-  els.formMessage.classList.remove("hidden");
-  clearTimeout(state.lastMessageTimeout);
-  state.lastMessageTimeout = window.setTimeout(() => {
-    els.formMessage.classList.add("hidden");
-  }, 4200);
+function createId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function downloadText(fileName, content, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+function displayPlatformArticle(article) {
+  return displayMaybeNumber(article.platformArticle || article.ozonProductId || article.wbArticle || "");
 }
 
-function cryptoRandomId() {
-  if (window.crypto && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `id-${Date.now()}-${Math.round(Math.random() * 100000)}`;
-}
-
-function formatNumber(value) {
-  const num = Number(value || 0);
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(num);
-}
-
-function formatCurrency(value) {
-  const num = Number(value || 0);
-  return new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2 }).format(num);
-}
-
-function formatPercent(value) {
-  const num = Number(value || 0);
-  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(num * 100)}%`;
-}
-
-function roundTo2(value) {
-  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
-}
-
-function roundForInput(value) {
-  return String(roundTo2(value));
-}
-
-function toNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function safeDivide(value, divisor) {
-  return divisor ? Number(value || 0) / divisor : 0;
+function displayMaybeNumber(value) {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return text.endsWith(".0") ? text.slice(0, -2) : text;
 }
 
 function escapeHtml(value) {
@@ -1610,17 +1307,120 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function escapeAttribute(value) {
-  return escapeHtml(value).replaceAll("`", "&#96;");
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("\n", "&#10;");
 }
 
-function slugify(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/(^-|-$)/g, "");
+function downloadJson(payload, filename) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
-function getArticleKey(article) {
-  return `${article.channel || state.managerData?.channel || ""}::${article.sellerArticle || getPlatformArticleId(article) || article.name || "article"}`;
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function monthLabelFromDate(dateStr) {
+  const ym = (dateStr || "").slice(0, 7);
+  const [year, month] = ym.split("-");
+  if (!year || !month) return ym || "";
+  const label = new Intl.DateTimeFormat("ru-RU", { month: "long" }).format(new Date(`${ym}-01T00:00:00`));
+  return `${label} ${year}`;
+}
+
+function isBusinessDay(date) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
+}
+
+function businessDaysDiff(anchorStr, targetStr) {
+  if (!anchorStr || !targetStr) return 0;
+  const anchor = new Date(`${anchorStr}T00:00:00`);
+  const target = new Date(`${targetStr}T00:00:00`);
+  if (anchor.getTime() === target.getTime()) return 0;
+
+  let count = 0;
+  const step = anchor < target ? 1 : -1;
+  const cursor = new Date(anchor);
+  while ((step > 0 && cursor < target) || (step < 0 && cursor > target)) {
+    cursor.setDate(cursor.getDate() + step);
+    if (isBusinessDay(cursor)) {
+      count += step;
+    }
+  }
+  return count;
+}
+
+function priorityClassName(bucket) {
+  return bucket || "medium";
+}
+
+function statusLabel(value) {
+  return MANAGER_STATUS_OPTIONS.find((opt) => opt.value === value)?.label || value || "—";
+}
+
+function supplyStatusLabel(value) {
+  return SUPPLY_STATUS_OPTIONS.find((opt) => opt.value === value)?.label || value || "—";
+}
+
+function asNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(String(value).replace(",", "."));
+  return Number.isFinite(number) ? number : null;
+}
+
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function sum(values) {
+  const filtered = values.filter((value) => isNumber(value));
+  if (!filtered.length) return null;
+  return round2(filtered.reduce((acc, value) => acc + Number(value), 0));
+}
+
+function maxValue(values) {
+  const filtered = values.filter((value) => isNumber(value));
+  if (!filtered.length) return null;
+  return Math.max(...filtered);
+}
+
+function isNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function fmtNumber(value) {
+  if (!isNumber(value)) return "—";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+}
+
+function fmtInt(value) {
+  if (!isNumber(value)) return "—";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(value);
+}
+
+function fmtMoney(value) {
+  if (!isNumber(value)) return "—";
+  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(value)} ₽`;
 }

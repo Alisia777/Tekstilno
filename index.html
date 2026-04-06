@@ -3,373 +3,415 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Тетрадь менеджеров и координатора</title>
-  <meta name="description" content="Сайт для ежедневной работы менеджеров WB/Ozon и координатора поставок: задачи на день, тетрадь действий, пакет артикулов и план/факт." />
+  <title>Текстильно — задачи по артикулам, поставки и контроль</title>
+  <meta name="description" content="Сайт Текстильно: отдельные вкладки WB, Ozon, Поставки и Руководитель. План и факт по артикулам подтягиваются автоматически, менеджеры заполняют только статусы и комментарии." />
   <link rel="stylesheet" href="styles.css" />
   <script src="config.js"></script>
 </head>
 <body>
-  <div class="page-shell">
+  <div class="page">
     <header class="hero">
-      <div class="hero-copy">
-        <span class="eyebrow">Текстильно · GitHub Pages</span>
-        <h1 id="siteTitle">Тетрадь менеджеров и координатора</h1>
+      <div class="hero-main">
+        <span class="eyebrow">Текстильно · задачи по артикулам</span>
+        <h1 id="heroTitle">Прозрачный сайт для WB, Ozon, поставок и руководителя</h1>
         <p class="lead">
-          Сайт разделён по площадкам: сначала выбираете WB, Ozon или поставки, потом сотрудника. Менеджер видит свой пакет артикулов, конкретное действие по каждому артикулу, ведёт тетрадь действий и сдаёт факт. Ежедневные правки задач можно обновлять через JSON без переделки всего сайта.
+          План и факт по артикулам подтягиваются из файлов автоматически. Менеджеры больше не заносят метрики руками — только отмечают статус выполнения задач по артикулу и пишут комментарий.
         </p>
         <div class="hero-actions">
-          <button type="button" class="btn btn-primary" id="saveDraftBtnTop">Сохранить черновик</button>
-          <button type="button" class="btn btn-secondary" id="fillLastBtnTop">Заполнить прошлым</button>
-          <button type="button" class="btn btn-secondary hidden" id="openSheetBtnTop">Открыть таблицу</button>
+          <button type="button" class="btn btn-primary" data-open-tab="wb">Открыть WB</button>
+          <button type="button" class="btn btn-secondary" data-open-tab="ozon">Открыть Ozon</button>
+          <button type="button" class="btn btn-secondary" data-open-tab="supplies">Открыть поставки</button>
+          <button type="button" class="btn btn-secondary" data-open-tab="leader">Открыть руководителя</button>
         </div>
       </div>
 
-      <div class="hero-card">
-        <div class="hero-status">
-          <span>Данные плана</span>
-          <strong id="planStatusBadge">загрузка…</strong>
+      <aside class="hero-side">
+        <label class="field">
+          <span>Рабочая дата</span>
+          <input type="date" id="globalReportDate" />
+        </label>
+        <div class="metric-stack">
+          <div class="hero-metric">
+            <span>Хранение</span>
+            <strong id="storageModeBadge">локально</strong>
+          </div>
+          <div class="hero-metric">
+            <span>План/факт</span>
+            <strong id="planFactBadge">загрузка…</strong>
+          </div>
+          <div class="hero-metric">
+            <span>Кластера</span>
+            <strong id="clusterBadge">загрузка…</strong>
+          </div>
+          <div class="hero-metric">
+            <span>Пакет</span>
+            <strong id="packSizeBadge">20 артикулов</strong>
+          </div>
         </div>
-        <div class="hero-status">
-          <span>Пакет в день</span>
-          <strong id="packStatusBadge">20 артикулов</strong>
-        </div>
-        <div class="hero-status">
-          <span>Режим отправки</span>
-          <strong id="submitStatusBadge">локально</strong>
-        </div>
-        <div class="hero-status">
-          <span>Автосохранение</span>
-          <strong>включено</strong>
-        </div>
-        <p class="muted">
-          План собран по реальным ролям: Анастасия — WB, Ирина Паламарук — Ozon, плюс координатор поставок. Теперь в пакете по каждому артикулу есть не только план, но и отдельный блок «что сделать сегодня» с комментарием из исходного файла.
-        </p>
-      </div>
+      </aside>
     </header>
 
-    <section id="statusBanner" class="banner" aria-live="polite">Загружаю данные менеджеров…</section>
+    <div id="banner" class="banner">Загружаю данные…</div>
 
-    <div class="layout">
-      <main class="main-column">
-        <section class="panel">
+    <nav class="tabs">
+      <button type="button" class="tab-btn active" data-tab="wb">WB · Анастасия</button>
+      <button type="button" class="tab-btn" data-tab="ozon">Ozon · Ирина Паламарук</button>
+      <button type="button" class="tab-btn" data-tab="supplies">Поставки</button>
+      <button type="button" class="tab-btn" data-tab="leader">Руководитель</button>
+    </nav>
+
+    <main class="tab-wrap">
+      <section class="tab-panel active" id="tab-wb">
+        <div class="panel">
           <div class="panel-head">
             <div>
-              <h2>Профиль дня</h2>
-              <p>Выберите роль и дату. Для менеджеров сайт подтянет пакет артикулов, план на день и комментарии по каждому артикулу. Для координатора — ежедневные задачи и тетрадь действий.</p>
+              <h2>WB · Анастасия</h2>
+              <p>Менеджер видит свой пакет артикулов на день, а ты — прозрачный статус по каждому артикулу. План и факт подтягиваются автоматически.</p>
             </div>
-            <div class="inline-actions">
-              <button type="button" class="btn btn-ghost" id="reloadBtn">Обновить</button>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-ghost" id="wbSaveBtn">Сохранить черновик</button>
+              <button type="button" class="btn btn-ghost" id="wbExportBtn">Экспорт JSON</button>
+              <button type="button" class="btn btn-primary" id="wbSubmitBtn">Сдать пакет WB</button>
             </div>
           </div>
 
-          <div class="grid cols-4">
-            <label class="field">
-              <span>Дата отчёта</span>
-              <input type="date" id="reportDate" />
+          <div class="info-line">
+            <span class="badge">Менеджер: Анастасия</span>
+            <span class="badge">Площадка: WB</span>
+            <span class="badge" id="wbResponsibilityBadge">Роль: менеджер WB</span>
+            <span class="badge" id="wbSourceBadge">Источник: загрузка…</span>
+          </div>
+
+          <div class="cards cards-8">
+            <article class="card metric"><span>Текущий пакет</span><strong id="wbPackCard">—</strong></article>
+            <article class="card metric"><span>Артикулов</span><strong id="wbCountCard">—</strong></article>
+            <article class="card metric"><span>Критично</span><strong id="wbCriticalCard">—</strong></article>
+            <article class="card metric"><span>План заказов / день</span><strong id="wbPlanOrdersCard">—</strong></article>
+            <article class="card metric"><span>Факт заказов / день</span><strong id="wbFactOrdersCard">—</strong></article>
+            <article class="card metric"><span>Отклонение</span><strong id="wbDeltaOrdersCard">—</strong></article>
+            <article class="card metric"><span>План маржи / день</span><strong id="wbPlanMarginCard">—</strong></article>
+            <article class="card metric"><span>Нужно допоставить</span><strong id="wbSupplyCard">—</strong></article>
+          </div>
+
+          <div class="toolbar">
+            <label class="field compact">
+              <span>Пакет</span>
+              <select id="wbPackFilter"></select>
             </label>
-
-            <label class="field">
-              <span>Площадка</span>
-              <select id="channelFilter">
-                <option value="WB">WB</option>
-                <option value="Ozon">Ozon</option>
-                <option value="Поставки">Поставки</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Сотрудник / роль</span>
-              <select id="managerSelect"></select>
-            </label>
-
-            <label class="field">
-              <span>Канал / площадка</span>
-              <input type="text" id="channel" readonly />
-            </label>
-
-            <label class="field">
-              <span>Отдел</span>
-              <input type="text" id="department" />
-            </label>
-
-            <label class="field">
-              <span>Фокус дня</span>
-              <input type="text" id="dayFocus" placeholder="Что главное на сегодня" />
-            </label>
-
-            <label class="field">
-              <span>Статус дня</span>
-              <select id="overallStatus">
-                <option value="green">Зелёный — идём по плану</option>
-                <option value="yellow">Жёлтый — есть риски</option>
-                <option value="red">Красный — нужна помощь</option>
-              </select>
-            </label>
-
-            <label class="field field-wide">
-              <span>Зона ответственности</span>
-              <textarea id="managerLinkPreview" rows="2" readonly></textarea>
-            </label>
-          </div>
-
-          <div class="badge-row">
-            <span class="badge" id="packBadge">Пакет —</span>
-            <span class="badge" id="articlesCountBadge">Артикулы —</span>
-            <span class="badge" id="sourceBadge">Источник —</span>
-            <span class="badge" id="priorityBadge">Приоритеты —</span>
-          </div>
-        </section>
-
-        <section class="panel" id="numbersPanel">
-          <div class="panel-head">
-            <div>
-              <h2>План и факт дня</h2>
-              <p>План на день считается автоматически по текущему пакету артикулов. Факт заполняется вручную по итогам дня; строка по артикулу нужна для статуса и комментария менеджера.</p>
-            </div>
-            <div class="inline-actions">
-              <button type="button" class="btn btn-secondary" id="syncFactsBtn">Подтянуть факт из строк</button>
-            </div>
-          </div>
-
-          <div class="metrics-overview">
-            <article class="metric-card">
-              <span class="metric-title">Артикулов в работе</span>
-              <strong id="headlineArticles">—</strong>
-              <small id="headlineArticlesSub">Пакет не выбран</small>
-            </article>
-            <article class="metric-card">
-              <span class="metric-title">План заказов / день</span>
-              <strong id="headlineOrdersPlan">—</strong>
-              <small id="headlineOrdersSub">Сумма по пакету</small>
-            </article>
-            <article class="metric-card">
-              <span class="metric-title">План маржи / день</span>
-              <strong id="headlineMarginPlan">—</strong>
-              <small id="headlineMarginSub">Сумма по пакету</small>
-            </article>
-            <article class="metric-card">
-              <span class="metric-title">План выручки / день</span>
-              <strong id="headlineRevenuePlan">—</strong>
-              <small id="headlineRevenueSub">Сумма по пакету</small>
-            </article>
-          </div>
-
-          <div class="metric-grid">
-            <div class="metric-grid-head metric-grid-row">
-              <div>Показатель</div>
-              <div>План</div>
-              <div>Факт</div>
-              <div>Отклонение</div>
-            </div>
-
-            <div class="metric-grid-row">
-              <div class="metric-label">Заказы, шт</div>
-              <div id="ordersPlanCell" class="metric-display">—</div>
-              <label class="metric-input"><input type="number" id="ordersFact" min="0" step="0.01" placeholder="0" /></label>
-              <div id="ordersDeviation" class="metric-deviation">—</div>
-            </div>
-
-            <div class="metric-grid-row">
-              <div class="metric-label">Маржа, ₽</div>
-              <div id="marginPlanCell" class="metric-display">—</div>
-              <label class="metric-input"><input type="number" id="marginFact" min="0" step="0.01" placeholder="0" /></label>
-              <div id="marginDeviation" class="metric-deviation">—</div>
-            </div>
-
-            <div class="metric-grid-row">
-              <div class="metric-label">Выручка, ₽</div>
-              <div id="revenuePlanCell" class="metric-display">—</div>
-              <label class="metric-input"><input type="number" id="revenueFact" min="0" step="0.01" placeholder="0" /></label>
-              <div id="revenueDeviation" class="metric-deviation">—</div>
-            </div>
-          </div>
-
-          <div class="helper-line">
-            <span id="rowFactsHint">По строкам пока нет факта.</span>
-          </div>
-
-          <label class="field">
-            <span>Комментарий по цифрам</span>
-            <textarea id="numbersComment" rows="3" placeholder="Почему есть отклонение, что повлияло на маржу и заказы, какие действия были сделаны"></textarea>
-          </label>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Задачи на день</h2>
-              <p>Общие задачи роли меняются в <code>data/daily-tasks.json</code>. Точные действия по артикулу и критичность берутся из <code>data/daily-article-overrides.json</code>.</p>
-            </div>
-          </div>
-          <div id="tasksList" class="tasks-list">
-            <div class="empty-state">Задачи ещё не загружены.</div>
-          </div>
-        </section>
-
-        <section class="panel" id="articlesPanel">
-          <div class="panel-head">
-            <div>
-              <h2>20 артикулов на день</h2>
-              <p>Пакет собирается автоматически по рабочему дню месяца. Внутри он уже разложен по приоритету: сначала критично, затем срочно, затем планово. Для каждого артикула менеджер видит, что именно нужно сделать сегодня.</p>
-            </div>
-          </div>
-
-          <div class="article-filters">
-            <label class="field">
-              <span>Фильтр по приоритету</span>
-              <select id="articlePriorityFilter">
+            <label class="field compact">
+              <span>Приоритет</span>
+              <select id="wbPriorityFilter">
                 <option value="all">Все</option>
                 <option value="critical">Критично</option>
-                <option value="urgent">Срочно</option>
-                <option value="planned">Планово</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
               </select>
             </label>
-
-            <label class="field">
-              <span>Фильтр по статусу выполнения</span>
-              <select id="articleStatusFilter">
+            <label class="field compact">
+              <span>Статус</span>
+              <select id="wbStatusFilter">
                 <option value="all">Все</option>
-                <option value="not_started">Не начато</option>
-                <option value="in_progress">В работе</option>
+                <option value="not-started">Не начато</option>
+                <option value="in-progress">В работе</option>
                 <option value="done">Сделано</option>
-                <option value="review">Проверить повторно</option>
+                <option value="to-supply">Передано в поставки</option>
                 <option value="blocked">Блокер</option>
+                <option value="need-help">Нужна помощь</option>
               </select>
             </label>
-
-            <label class="field">
-              <span>Поиск по артикулу / SKU / товару</span>
-              <input type="text" id="articleSearch" placeholder="Например: 348226716 или лонгслив" />
+            <label class="field compact search-field">
+              <span>Поиск</span>
+              <input type="search" id="wbSearchFilter" placeholder="Артикул или товар" />
             </label>
           </div>
 
+          <p class="subnote" id="wbPlanNote">Проверяю плановые метрики…</p>
+
           <div class="table-wrap">
-            <table class="articles-table">
+            <table class="data-table">
               <thead>
                 <tr>
-                  <th>#</th>
                   <th>Приоритет</th>
                   <th>Артикул</th>
                   <th>Товар</th>
-                  <th>Что сделать сегодня</th>
-                  <th>План на месяц</th>
-                  <th>План на день</th>
-                  <th>Факт заказов</th>
-                  <th>Факт маржи</th>
+                  <th>Что сделать</th>
+                  <th>Почему в фокусе</th>
+                  <th>План / факт</th>
+                  <th>Статус</th>
+                  <th>Комментарий менеджера</th>
+                </tr>
+              </thead>
+              <tbody id="wbArticlesBody"></tbody>
+            </table>
+          </div>
+
+          <div class="notes-grid">
+            <label class="field">
+              <span>Комментарий по дню</span>
+              <textarea id="wbDayComment" rows="3" placeholder="Что важно донести по пакету WB"></textarea>
+            </label>
+            <label class="field">
+              <span>Нужна помощь</span>
+              <textarea id="wbNeedHelp" rows="3" placeholder="Что требует подключения руководителя или поставок"></textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-ozon">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Ozon · Ирина Паламарук</h2>
+              <p>Здесь остаются только статусы и комментарии по задачам. Плановые и фактические показатели по артикулам подгружаются автоматически.</p>
+            </div>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-ghost" id="ozonSaveBtn">Сохранить черновик</button>
+              <button type="button" class="btn btn-ghost" id="ozonExportBtn">Экспорт JSON</button>
+              <button type="button" class="btn btn-primary" id="ozonSubmitBtn">Сдать пакет Ozon</button>
+            </div>
+          </div>
+
+          <div class="info-line">
+            <span class="badge">Менеджер: Ирина Паламарук</span>
+            <span class="badge">Площадка: Ozon</span>
+            <span class="badge" id="ozonResponsibilityBadge">Роль: менеджер Ozon</span>
+            <span class="badge" id="ozonSourceBadge">Источник: загрузка…</span>
+          </div>
+
+          <div class="cards cards-8">
+            <article class="card metric"><span>Текущий пакет</span><strong id="ozonPackCard">—</strong></article>
+            <article class="card metric"><span>Артикулов</span><strong id="ozonCountCard">—</strong></article>
+            <article class="card metric"><span>Критично</span><strong id="ozonCriticalCard">—</strong></article>
+            <article class="card metric"><span>План заказов / день</span><strong id="ozonPlanOrdersCard">—</strong></article>
+            <article class="card metric"><span>Факт заказов / день</span><strong id="ozonFactOrdersCard">—</strong></article>
+            <article class="card metric"><span>Отклонение</span><strong id="ozonDeltaOrdersCard">—</strong></article>
+            <article class="card metric"><span>План маржи / день</span><strong id="ozonPlanMarginCard">—</strong></article>
+            <article class="card metric"><span>Нужно допоставить</span><strong id="ozonSupplyCard">—</strong></article>
+          </div>
+
+          <div class="toolbar">
+            <label class="field compact">
+              <span>Пакет</span>
+              <select id="ozonPackFilter"></select>
+            </label>
+            <label class="field compact">
+              <span>Приоритет</span>
+              <select id="ozonPriorityFilter">
+                <option value="all">Все</option>
+                <option value="critical">Критично</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>Статус</span>
+              <select id="ozonStatusFilter">
+                <option value="all">Все</option>
+                <option value="not-started">Не начато</option>
+                <option value="in-progress">В работе</option>
+                <option value="done">Сделано</option>
+                <option value="to-supply">Передано в поставки</option>
+                <option value="blocked">Блокер</option>
+                <option value="need-help">Нужна помощь</option>
+              </select>
+            </label>
+            <label class="field compact search-field">
+              <span>Поиск</span>
+              <input type="search" id="ozonSearchFilter" placeholder="Артикул или товар" />
+            </label>
+          </div>
+
+          <p class="subnote" id="ozonPlanNote">Проверяю плановые метрики…</p>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Приоритет</th>
+                  <th>Артикул</th>
+                  <th>Товар</th>
+                  <th>Что сделать</th>
+                  <th>Почему в фокусе</th>
+                  <th>План / факт</th>
+                  <th>Статус</th>
+                  <th>Комментарий менеджера</th>
+                </tr>
+              </thead>
+              <tbody id="ozonArticlesBody"></tbody>
+            </table>
+          </div>
+
+          <div class="notes-grid">
+            <label class="field">
+              <span>Комментарий по дню</span>
+              <textarea id="ozonDayComment" rows="3" placeholder="Что важно донести по пакету Ozon"></textarea>
+            </label>
+            <label class="field">
+              <span>Нужна помощь</span>
+              <textarea id="ozonNeedHelp" rows="3" placeholder="Что требует подключения руководителя или поставок"></textarea>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" id="tab-supplies">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Поставки и кластера</h2>
+              <p>Координатор работает уже не “на глаз”, а по строкам кластеров: видно спрос, остаток, оборачиваемость, что в поставке, в производстве и в закупке.</p>
+            </div>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-ghost" id="suppliesSaveBtn">Сохранить черновик</button>
+              <button type="button" class="btn btn-ghost" id="suppliesExportBtn">Экспорт JSON</button>
+              <button type="button" class="btn btn-primary" id="suppliesSubmitBtn">Сдать форму поставок</button>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="field compact">
+              <span>Площадка</span>
+              <select id="suppliesChannel">
+                <option value="WB">WB</option>
+                <option value="Ozon">Ozon</option>
+              </select>
+            </label>
+            <label class="field compact large">
+              <span>Артикул</span>
+              <select id="suppliesArticleSelect"></select>
+            </label>
+            <label class="field compact">
+              <span>Целевое покрытие, дней</span>
+              <input type="number" id="suppliesTargetDays" min="7" max="60" step="1" value="21" />
+            </label>
+            <label class="field compact">
+              <span>Координатор</span>
+              <input type="text" id="suppliesCoordinator" placeholder="Имя координатора" />
+            </label>
+          </div>
+
+          <div class="cards cards-6">
+            <article class="card metric"><span>Товар</span><strong id="suppliesTitleCard">—</strong></article>
+            <article class="card metric"><span>Осн. склад</span><strong id="suppliesMainStockCard">—</strong></article>
+            <article class="card metric"><span>Остаток на МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
+            <article class="card metric"><span>Спрос / день</span><strong id="suppliesDemandCard">—</strong></article>
+            <article class="card metric"><span>Рекоменд. отгрузка</span><strong id="suppliesRecommendedCard">—</strong></article>
+            <article class="card metric"><span>Кластеров</span><strong id="suppliesRowsCard">—</strong></article>
+          </div>
+
+          <p class="subnote" id="suppliesHint">Выбери площадку и артикул — сайт подтянет строки кластеров и рассчитает потребность.</p>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Кластер / склад</th>
+                  <th>Спрос 7д</th>
+                  <th>Спрос / день</th>
+                  <th>Текущий остаток</th>
+                  <th>Оборачиваемость</th>
+                  <th>В поставке</th>
+                  <th>В производстве</th>
+                  <th>В закупке</th>
+                  <th>Нужно отправить</th>
+                  <th>План отгрузки</th>
+                  <th>ETA</th>
                   <th>Статус</th>
                   <th>Комментарий</th>
                 </tr>
               </thead>
-              <tbody id="articlesBody">
-                <tr><td colspan="11" class="empty-state cell-empty">Пакет ещё не собран.</td></tr>
-              </tbody>
+              <tbody id="suppliesRowsBody"></tbody>
             </table>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section class="panel">
+      <section class="tab-panel" id="tab-leader">
+        <div class="panel">
           <div class="panel-head">
             <div>
-              <h2>Тетрадь действий</h2>
-              <p>Здесь менеджер фиксирует реальные действия за день: что сделал, по какому артикулу, какой результат и что дальше.</p>
+              <h2>Руководитель</h2>
+              <p>Здесь видно, кто что сдал, с какой площадки, на какую дату и что именно было внутри. Пока Apps Script не подключён — видимость ограничена этим браузером и экспортом JSON.</p>
             </div>
-            <div class="inline-actions">
-              <button type="button" class="btn btn-secondary" id="addActionBtn">Добавить действие</button>
-            </div>
-          </div>
-
-          <div id="actionsList" class="actions-list">
-            <div class="empty-state">Пока нет записей. Добавьте действие, чтобы вести тетрадь с сайта.</div>
-          </div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <div>
-              <h2>Итог дня</h2>
-              <p>Короткий итог для руководителя и для себя на завтра.</p>
+            <div class="panel-actions">
+              <button type="button" class="btn btn-ghost" id="leaderRefreshBtn">Обновить журнал</button>
+              <button type="button" class="btn btn-ghost" id="leaderExportAllBtn">Экспорт всех данных</button>
+              <button type="button" class="btn btn-ghost hidden" id="openSheetBtn">Открыть Google Sheet</button>
+              <label class="btn btn-secondary btn-file">
+                Импорт JSON
+                <input type="file" id="leaderImportInput" accept=".json,application/json" />
+              </label>
             </div>
           </div>
 
-          <div class="grid cols-2">
-            <label class="field">
-              <span>Что сделал по сути</span>
-              <textarea id="doneSummary" rows="4" placeholder="Главные выполненные действия за день"></textarea>
+          <div class="toolbar">
+            <label class="field compact">
+              <span>Дата</span>
+              <input type="date" id="leaderDateFilter" />
             </label>
-
-            <label class="field">
-              <span>Блокеры / проблемы</span>
-              <textarea id="blockers" rows="4" placeholder="Что помешало выполнить план или задачи"></textarea>
+            <label class="field compact">
+              <span>Тип</span>
+              <select id="leaderTypeFilter">
+                <option value="all">Все</option>
+                <option value="manager">Пакеты менеджеров</option>
+                <option value="cluster">Формы поставок</option>
+              </select>
             </label>
-
-            <label class="field">
-              <span>Какая помощь нужна</span>
-              <textarea id="helpNeeded" rows="4" placeholder="Что нужно от руководителя / команды"></textarea>
+            <label class="field compact">
+              <span>Кто</span>
+              <select id="leaderManagerFilter">
+                <option value="all">Все</option>
+              </select>
             </label>
-
-            <label class="field">
-              <span>Фокус на завтра</span>
-              <textarea id="tomorrowFocus" rows="4" placeholder="На что будет упор в следующий день"></textarea>
+            <label class="field compact">
+              <span>Источник</span>
+              <select id="leaderSourceFilter">
+                <option value="all">Все</option>
+                <option value="local">Локально</option>
+                <option value="remote">Apps Script</option>
+              </select>
             </label>
           </div>
 
-          <div class="actions-row">
-            <button type="button" class="btn btn-secondary" id="saveDraftBtn">Сохранить черновик</button>
-            <button type="button" class="btn btn-secondary" id="fillLastBtn">Заполнить прошлым</button>
-            <button type="button" class="btn btn-ghost" id="clearDraftBtn">Очистить</button>
-            <button type="button" class="btn btn-secondary" id="exportJsonBtn">Экспорт JSON</button>
-            <button type="button" class="btn btn-primary" id="submitBtn">Сохранить отчёт</button>
+          <div class="cards cards-4">
+            <article class="card metric"><span>Записей</span><strong id="leaderTotalCard">—</strong></article>
+            <article class="card metric"><span>Пакеты менеджеров</span><strong id="leaderManagerCard">—</strong></article>
+            <article class="card metric"><span>Формы поставок</span><strong id="leaderClusterCard">—</strong></article>
+            <article class="card metric"><span>Есть блокеры</span><strong id="leaderIssuesCard">—</strong></article>
           </div>
 
-          <div id="formMessage" class="form-message hidden" aria-live="polite"></div>
-        </section>
-      </main>
+          <div class="two-col">
+            <div class="table-wrap">
+              <table class="data-table leader-table">
+                <thead>
+                  <tr>
+                    <th>Когда</th>
+                    <th>Кто</th>
+                    <th>Тип</th>
+                    <th>Площадка</th>
+                    <th>Сводка</th>
+                    <th>Источник</th>
+                  </tr>
+                </thead>
+                <tbody id="leaderFeedBody"></tbody>
+              </table>
+            </div>
 
-      <aside class="side-column">
-        <section class="panel compact-panel">
-          <h2>Что уже подтянуто</h2>
-          <ul class="summary-list" id="managerSummaryList">
-            <li>Загрузка…</li>
-          </ul>
-        </section>
-
-        <section class="panel compact-panel">
-          <h2 id="packRulesTitle">Как считается пакет</h2>
-          <ol class="steps">
-            <li>Для WB и Ozon берётся общий список артикулов по площадке.</li>
-            <li>Артикулы сортируются сначала по срочности комментария, потом по плановому вкладу.</li>
-            <li>Список режется на пакеты по 20 артикулов на день.</li>
-            <li>Внутри пакета менеджер видит «что сделать сегодня» и комментарий из исходного файла.</li>
-            <li>План на день = план месяца / число рабочих дней месяца.</li>
-          </ol>
-        </section>
-
-        <section class="panel compact-panel">
-          <h2>Локальная история</h2>
-          <div id="localHistoryList" class="history-list">
-            <div class="empty-state">После сохранения отчётов здесь появится локальная история браузера.</div>
+            <aside class="details-panel" id="leaderDetails">
+              <h3>Детали записи</h3>
+              <p class="muted">Выбери строку в журнале слева — здесь появится содержимое пакета или формы поставок.</p>
+            </aside>
           </div>
-        </section>
+        </div>
+      </section>
+    </main>
 
-        <section class="panel compact-panel">
-          <h2>Кнопки руководителя</h2>
-          <div class="stack">
-            <button type="button" class="btn btn-primary wide hidden" id="openSheetBtn">Открыть общую таблицу</button>
-            <button type="button" class="btn btn-secondary wide" id="downloadPackBtn">Скачать текущий пакет CSV</button>
-          </div>
-          <p class="muted small-text">
-            Пока Google-скрипт не подключён, всё работает локально в браузере. Ежедневные входные данные можно обновлять через JSON, а после подключения Google выгруженные отчёты будут складываться в общую таблицу.
-          </p>
-        </section>
-      </aside>
-    </div>
-
-    <footer class="footer">
-      <p>Версия v6: раздельный выбор WB / Ozon / поставки, рабочие фильтры по пакету артикулов, ежедневные инструкции по артикулу и тетрадь действий в одном интерфейсе.</p>
-    </footer>
+    <div id="toast" class="toast" aria-live="polite"></div>
   </div>
 
-  <iframe id="submitFrame" name="submitFrame" class="hidden-frame"></iframe>
   <script src="app.js"></script>
 </body>
 </html>
