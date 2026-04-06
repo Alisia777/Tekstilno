@@ -546,6 +546,7 @@ h4 { font-size: 14px; line-height: 1.2; }
 .priority-pill.high { background: #fff1e8; color: #c85600; border-color: #ffd4b5; }
 .priority-pill.medium { background: #fff8dd; color: #9b6c00; border-color: #f3e2a0; }
 .priority-pill.low { background: #edf6ff; color: #0d5da8; border-color: #c9def5; }
+.priority-pill.neutral { background: #f5f7fb; color: #49566f; border-color: #d9e0eb; }
 
 .article-cell strong,
 .task-title {
@@ -747,4 +748,101 @@ h4 { font-size: 14px; line-height: 1.2; }
   .search-field { min-width: 100%; flex: 1 1 100%; }
   .deviation-item { grid-template-columns: 38px minmax(0, 1fr); }
   .deviation-pack { grid-column: 2; justify-self: start; }
+}
+
+.supplies-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(320px, 0.95fr);
+  gap: 20px;
+  align-items: start;
+}
+.supplies-primary,
+.supplies-side {
+  display: grid;
+  gap: 16px;
+}
+.supply-focus-cards {
+  margin-top: 0;
+}
+.supply-focus-card {
+  min-height: 132px;
+}
+.supply-focus-card span {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.supply-focus-card strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  font-weight: 600;
+}
+.supplies-summary-card .cards,
+.supplies-top-card .cards {
+  margin-top: 10px;
+}
+.compact-head-inline {
+  align-items: flex-start;
+  gap: 12px;
+}
+.btn-sm {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.attention-list {
+  display: grid;
+  gap: 10px;
+}
+.attention-item {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+.attention-item:hover {
+  border-color: #bfcdee;
+  background: #fbfcff;
+}
+.attention-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+.attention-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.attention-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.supply-jump-btn {
+  cursor: pointer;
+}
+.summary-row td {
+  position: sticky;
+  top: 0;
+  background: #f7f9fd;
+  z-index: 1;
+  border-bottom: 1px solid var(--line);
+}
+.summary-row strong {
+  color: var(--text);
+}
+@media (max-width: 1180px) {
+  .supplies-grid {
+    grid-template-columns: 1fr;
+  }
 }

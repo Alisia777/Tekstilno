@@ -66,7 +66,7 @@ function cacheElements() {
     "globalReportDate",
     "wbResponsibilityBadge", "wbSourceBadge", "wbPackCard", "wbCountCard", "wbCriticalCard", "wbPlanOrdersCard", "wbFactOrdersCard", "wbDeltaOrdersCard", "wbPlanMarginCard", "wbSupplyCard", "wbPackFilter", "wbPriorityFilter", "wbStatusFilter", "wbSearchFilter", "wbPlanNote", "wbArticlesBody", "wbDayComment", "wbNeedHelp", "wbSaveBtn", "wbExportBtn", "wbSubmitBtn", "wbTrendChart", "wbTrendCaption", "wbDeviationList",
     "ozonResponsibilityBadge", "ozonSourceBadge", "ozonPackCard", "ozonCountCard", "ozonCriticalCard", "ozonPlanOrdersCard", "ozonFactOrdersCard", "ozonDeltaOrdersCard", "ozonPlanMarginCard", "ozonSupplyCard", "ozonPackFilter", "ozonPriorityFilter", "ozonStatusFilter", "ozonSearchFilter", "ozonPlanNote", "ozonArticlesBody", "ozonDayComment", "ozonNeedHelp", "ozonSaveBtn", "ozonExportBtn", "ozonSubmitBtn", "ozonTrendChart", "ozonTrendCaption", "ozonDeviationList",
-    "suppliesChannel", "suppliesArticleSelect", "suppliesTargetDays", "suppliesCoordinator", "suppliesTitleCard", "suppliesMainStockCard", "suppliesPlatformStockCard", "suppliesDemandCard", "suppliesRecommendedCard", "suppliesRowsCard", "suppliesHint", "suppliesRowsBody", "suppliesSaveBtn", "suppliesExportBtn", "suppliesSubmitBtn",
+    "suppliesChannel", "suppliesArticleSelect", "suppliesTargetDays", "suppliesCoordinator", "suppliesTitleCard", "suppliesMainStockCard", "suppliesPlatformStockCard", "suppliesDemandCard", "suppliesRecommendedCard", "suppliesRowsCard", "suppliesReasonCard", "suppliesActionCard", "suppliesSummaryMeta", "suppliesSummaryArticlesCard", "suppliesSummaryRowsCard", "suppliesSummaryDemandCard", "suppliesSummaryStockCard", "suppliesSummaryMainCard", "suppliesSummaryNeedCard", "suppliesSummaryCriticalCard", "suppliesSummaryBlockedCard", "suppliesTopDeficits", "suppliesAttentionList", "suppliesHint", "suppliesRowsBody", "suppliesSaveBtn", "suppliesExportBtn", "suppliesSubmitBtn",
     "leaderDateFilter", "leaderTypeFilter", "leaderManagerFilter", "leaderSourceFilter", "leaderTotalCard", "leaderManagerCard", "leaderClusterCard", "leaderIssuesCard", "leaderFeedBody", "leaderDetails", "leaderRefreshBtn", "leaderExportAllBtn", "leaderImportInput", "openSheetBtn",
     "toast"
   ];
@@ -165,6 +165,8 @@ function bindEvents() {
   });
   els.suppliesRowsBody.addEventListener("change", handleSuppliesRowsChange);
   els.suppliesRowsBody.addEventListener("input", handleSuppliesRowsInput);
+  els.suppliesTopDeficits?.addEventListener("click", handleSuppliesArticleJump);
+  els.suppliesAttentionList?.addEventListener("click", handleSuppliesArticleJump);
   els.suppliesSaveBtn.addEventListener("click", () => {
     persistSuppliesDrafts();
     showToast("Черновик поставок сохранён.");
@@ -1072,6 +1074,208 @@ function getSupplyRowKey(channel, row) {
   return `Ozon|${row.shippingWarehouseKey || row.shippingWarehouse || row.deliveryCluster || row.platformArticle}`;
 }
 
+function getSupplyChannelRows(channel) {
+  return channel === "WB" ? (state.data.clusters?.wbRows || []) : (state.data.clusters?.ozonRows || []);
+}
+
+function getPlanArticlesByChannel(channel) {
+  const managers = state.data.plan?.managers || {};
+  const manager = Object.values(managers).find((item) => item?.channel === channel);
+  return manager?.articles || [];
+}
+
+function getPlanArticleByChannelAndSellerArticle(channel, sellerArticle) {
+  if (!sellerArticle) return null;
+  const articles = getPlanArticlesByChannel(channel);
+  return articles.find((item) => item.sellerArticle === sellerArticle) || null;
+}
+
+function currentStockForSupplyRow(channel, row) {
+  return channel === "WB"
+    ? (asNumber(row.wbWarehouseStock) ?? asNumber(row.marketplaceStock) ?? 0)
+    : (asNumber(row.warehouseStock) ?? asNumber(row.platformStock) ?? 0);
+}
+
+function highestPriorityBucket(values) {
+  const rank = { critical: 4, high: 3, medium: 2, low: 1 };
+  const buckets = values.filter(Boolean);
+  if (!buckets.length) return "medium";
+  return buckets.sort((a, b) => (rank[b] || 0) - (rank[a] || 0))[0] || "medium";
+}
+
+function buildSupplyReasonFallback(channel, rows, totalDaily, totalStock, mainWarehouseStock) {
+  const first = rows[0] || {};
+  const clusterText = rows.length ? `${rows.length} кл.` : "0 кл.";
+  const stockText = `${fmtInt(totalStock)} шт`;
+  const mainText = `${fmtInt(mainWarehouseStock)} шт`;
+  const demandText = fmtNumber(totalDaily);
+  if (channel === "WB") {
+    return `${clusterText}; спрос/день ${demandText}; запас на МП ${stockText}; осн. склад ${mainText}.`;
+  }
+  return `${clusterText}; спрос/день ${demandText}; запас в кластерах ${stockText}; осн. склад ${mainText}; ключевой склад ${first.shippingWarehouse || first.deliveryCluster || "—"}.`;
+}
+
+function aggregateSupplyArticles(channel, targetDays) {
+  const rows = getSupplyChannelRows(channel);
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const sellerArticle = row.sellerArticle;
+    if (!sellerArticle) return;
+    if (!grouped.has(sellerArticle)) grouped.set(sellerArticle, []);
+    grouped.get(sellerArticle).push(row);
+  });
+
+  return Array.from(grouped.entries()).map(([sellerArticle, groupRows]) => {
+    const normalizedRows = groupRows.map((row) => normalizeSupplyRow(channel, row, targetDays));
+    const planArticle = getPlanArticleByChannelAndSellerArticle(channel, sellerArticle) || {};
+    const totalCurrentStock = sum(normalizedRows.map((row) => row.currentStock)) || 0;
+    const totalMainStock = maxValue(normalizedRows.map((row) => row.mainWarehouseStock)) ?? (asNumber(planArticle.mainWarehouseStock) || 0);
+    const totalDaily = sum(normalizedRows.map((row) => row.avgDailyOrders)) || 0;
+    const totalNeed = sum(normalizedRows.map((row) => row.recommendedShipQty)) || 0;
+    const totalOrders7d = sum(normalizedRows.map((row) => row.orders7d)) || 0;
+    const totalTransit = sum(normalizedRows.map((row) => row.inTransit)) || 0;
+    const totalProduction = sum(normalizedRows.map((row) => row.inProduction)) || 0;
+    const totalPurchase = sum(normalizedRows.map((row) => row.inPurchase)) || 0;
+    const totalPlannedShip = sum(normalizedRows.map((row) => row.plannedShip)) || 0;
+    const coverDays = totalDaily > 0 ? round2((totalCurrentStock + totalTransit + totalProduction + totalPurchase + totalPlannedShip) / totalDaily) : null;
+    const priorityBucket = planArticle.priorityBucket || highestPriorityBucket(groupRows.map((row) => row.priorityBucket || row.priority)) || "medium";
+    const priorityLabel = planArticle.priorityLabel || groupRows.find((row) => row.priorityLabel)?.priorityLabel || bucketLabel(priorityBucket);
+    const action = planArticle.action || groupRows.find((row) => row.action)?.action || "—";
+    const reason = planArticle.reason || buildSupplyReasonFallback(channel, groupRows, totalDaily, totalCurrentStock, totalMainStock);
+    const blockers = normalizedRows.filter((row) => row.status === "blocked").length;
+    const needsAttention = ["critical", "high"].includes(priorityBucket) && ((coverDays !== null && coverDays < targetDays * 0.7) || totalNeed > 0 || blockers > 0);
+
+    return {
+      sellerArticle,
+      label: `${sellerArticle} — ${planArticle.name || groupRows[0]?.name || sellerArticle}`,
+      name: planArticle.name || groupRows[0]?.name || sellerArticle,
+      platformArticle: planArticle.platformArticle || groupRows[0]?.platformArticle || "",
+      priorityBucket,
+      priorityLabel,
+      action,
+      reason,
+      totalCurrentStock,
+      totalMainStock,
+      totalDaily,
+      totalNeed,
+      totalOrders7d,
+      clusterCount: normalizedRows.length,
+      coverDays,
+      blockers,
+      totalTransit,
+      totalProduction,
+      totalPurchase,
+      totalPlannedShip,
+      rows: normalizedRows,
+      needsAttention
+    };
+  }).sort((a, b) => {
+    const pr = { critical: 4, high: 3, medium: 2, low: 1 };
+    const diff = (pr[b.priorityBucket] || 0) - (pr[a.priorityBucket] || 0);
+    if (diff !== 0) return diff;
+    const needDiff = (b.totalNeed || 0) - (a.totalNeed || 0);
+    if (needDiff !== 0) return needDiff;
+    return (b.totalDaily || 0) - (a.totalDaily || 0);
+  });
+}
+
+function bucketLabel(bucket) {
+  return {
+    critical: "Критично",
+    high: "Высокий",
+    medium: "Средний",
+    low: "Низкий"
+  }[bucket] || "Средний";
+}
+
+function buildSuppliesTotalRow(rows) {
+  const totalOrders7d = sum(rows.map((row) => row.orders7d)) || 0;
+  const totalDaily = sum(rows.map((row) => row.avgDailyOrders)) || 0;
+  const totalStock = sum(rows.map((row) => row.currentStock)) || 0;
+  const totalInTransit = sum(rows.map((row) => row.inTransit)) || 0;
+  const totalInProduction = sum(rows.map((row) => row.inProduction)) || 0;
+  const totalInPurchase = sum(rows.map((row) => row.inPurchase)) || 0;
+  const totalNeed = sum(rows.map((row) => row.recommendedShipQty)) || 0;
+  const totalPlannedShip = sum(rows.map((row) => row.plannedShip)) || 0;
+  const turnoverDays = totalDaily > 0 ? round2(totalStock / totalDaily) : null;
+  return { totalOrders7d, totalDaily, totalStock, totalInTransit, totalInProduction, totalInPurchase, totalNeed, totalPlannedShip, turnoverDays };
+}
+
+function renderSuppliesSummary(channel, targetDays) {
+  const aggregates = aggregateSupplyArticles(channel, targetDays);
+  const rows = getSupplyChannelRows(channel);
+  const totalDaily = sum(aggregates.map((item) => item.totalDaily)) || 0;
+  const totalStock = sum(aggregates.map((item) => item.totalCurrentStock)) || 0;
+  const totalMain = sum(aggregates.map((item) => item.totalMainStock)) || 0;
+  const totalNeed = sum(aggregates.map((item) => item.totalNeed)) || 0;
+  const criticalCount = aggregates.filter((item) => ["critical", "high"].includes(item.priorityBucket)).length;
+  const blockerCount = aggregates.filter((item) => item.blockers > 0).length;
+
+  els.suppliesSummaryMeta.textContent = `${channel}: ${aggregates.length} артикулов · ${rows.length} кластерных строк · покрытие ${targetDays} дн.`;
+  els.suppliesSummaryArticlesCard.textContent = String(aggregates.length);
+  els.suppliesSummaryRowsCard.textContent = String(rows.length);
+  els.suppliesSummaryDemandCard.textContent = fmtNumber(totalDaily);
+  els.suppliesSummaryStockCard.textContent = `${fmtInt(totalStock)} шт`;
+  els.suppliesSummaryMainCard.textContent = `${fmtInt(totalMain)} шт`;
+  els.suppliesSummaryNeedCard.textContent = `${fmtInt(totalNeed)} шт`;
+  els.suppliesSummaryCriticalCard.textContent = String(criticalCount);
+  els.suppliesSummaryBlockedCard.textContent = String(blockerCount);
+
+  const top = aggregates.filter((item) => item.totalNeed > 0 || item.totalDaily > 0).slice(0, 8);
+  els.suppliesTopDeficits.innerHTML = top.length
+    ? top.map((item, index) => renderSupplyAggregateCard(item, index + 1)).join("")
+    : `<div class="empty-state">Нет артикулов с активной потребностью по ${escapeHtml(channel)}.</div>`;
+
+  const attention = aggregates.filter((item) => item.needsAttention).slice(0, 8);
+  els.suppliesAttentionList.innerHTML = attention.length
+    ? attention.map((item) => renderSupplyAttentionItem(item)).join("")
+    : `<div class="empty-state">Сегодня по ${escapeHtml(channel)} нет строк с низким покрытием в красной зоне.</div>`;
+}
+
+function renderSupplyAggregateCard(item, rank) {
+  return `
+    <button type="button" class="deviation-item supply-jump-btn" data-supply-article="${escapeAttr(item.sellerArticle)}">
+      <span class="rank-badge">${rank}</span>
+      <span class="deviation-main">
+        <strong>${escapeHtml(item.sellerArticle)}</strong>
+        <small>${escapeHtml(item.name || "—")}</small>
+        <span class="deviation-meta">
+          <span class="priority-pill ${priorityClassName(item.priorityBucket)}">${escapeHtml(item.priorityLabel)}</span>
+          <span class="priority-pill neutral">нужно ${fmtInt(item.totalNeed)} шт</span>
+          <span class="priority-pill neutral">спрос ${fmtNumber(item.totalDaily)}/д</span>
+          <span class="priority-pill neutral">МП ${fmtInt(item.totalCurrentStock)} шт</span>
+        </span>
+      </span>
+      <span class="deviation-pack">${item.clusterCount} кл.</span>
+    </button>
+  `;
+}
+
+function renderSupplyAttentionItem(item) {
+  return `
+    <button type="button" class="attention-item supply-jump-btn" data-supply-article="${escapeAttr(item.sellerArticle)}">
+      <span class="attention-title">${escapeHtml(item.sellerArticle)}</span>
+      <span class="attention-text">${escapeHtml(item.reason || item.action || "—")}</span>
+      <span class="attention-meta">
+        <span class="priority-pill ${priorityClassName(item.priorityBucket)}">${escapeHtml(item.priorityLabel)}</span>
+        <span class="priority-pill neutral">покрытие ${fmtNumber(item.coverDays)} дн</span>
+        <span class="priority-pill neutral">план отгр. ${fmtInt(item.totalPlannedShip)} шт</span>
+      </span>
+    </button>
+  `;
+}
+
+function handleSuppliesArticleJump(event) {
+  const target = event.target.closest("[data-supply-article]");
+  if (!target) return;
+  const sellerArticle = target.dataset.supplyArticle;
+  if (!sellerArticle) return;
+  state.filters.supplies.sellerArticle = sellerArticle;
+  populateSuppliesArticleSelect();
+  renderSuppliesView();
+}
+
 function getSuppliesDraft() {
   const key = `${state.date}|${state.filters.supplies.channel}|${state.filters.supplies.sellerArticle || "_"}`;
   if (!state.suppliesDrafts[key]) {
@@ -1118,23 +1322,29 @@ function renderSuppliesView() {
   draft.targetDays = Number(els.suppliesTargetDays.value || state.filters.supplies.targetDays || 21);
   els.suppliesCoordinator.value = draft.coordinator || "";
 
-  if (!ranked.length) {
+  renderSuppliesSummary(channel, draft.targetDays);
+
+  if (!rows.length) {
     els.suppliesTitleCard.textContent = "—";
     els.suppliesMainStockCard.textContent = "—";
     els.suppliesPlatformStockCard.textContent = "—";
     els.suppliesDemandCard.textContent = "—";
     els.suppliesRecommendedCard.textContent = "—";
     els.suppliesRowsCard.textContent = "0";
+    els.suppliesReasonCard.textContent = "—";
+    els.suppliesActionCard.textContent = "—";
     els.suppliesRowsBody.innerHTML = `<tr><td colspan="13"><div class="empty-state">Нет строк по выбранному артикулу.</div></td></tr>`;
-    els.suppliesHint.textContent = "Выбери площадку и артикул — сайт подтянет строки кластеров.";
+    els.suppliesHint.textContent = "Выбери площадку и артикул — сайт подтянет строки кластеров и покажет сводку справа.";
     return;
   }
 
   const normalizedRows = rows.map((row) => normalizeSupplyRow(channel, row, draft.targetDays));
+  const totalRow = buildSuppliesTotalRow(normalizedRows);
   const totalMain = maxValue(normalizedRows.map((row) => row.mainWarehouseStock));
   const totalPlatform = sum(normalizedRows.map((row) => row.currentStock));
   const totalDemand = sum(normalizedRows.map((row) => row.avgDailyOrders));
   const totalRecommended = sum(normalizedRows.map((row) => row.recommendedShipQty));
+  const planArticle = getPlanArticleByChannelAndSellerArticle(channel, sellerArticle) || {};
   const first = normalizedRows[0];
 
   els.suppliesTitleCard.textContent = first.name || sellerArticle;
@@ -1143,9 +1353,11 @@ function renderSuppliesView() {
   els.suppliesDemandCard.textContent = fmtNumber(totalDemand);
   els.suppliesRecommendedCard.textContent = `${fmtInt(totalRecommended)} шт`;
   els.suppliesRowsCard.textContent = String(normalizedRows.length);
-  els.suppliesHint.textContent = `${channel}: расчёт по ${normalizedRows.length} строкам. Координатор заполняет только поставку, производство, закупку, ETA и комментарий.`;
+  els.suppliesReasonCard.textContent = planArticle.reason || buildSupplyReasonFallback(channel, rows, totalDemand || 0, totalPlatform || 0, totalMain || 0);
+  els.suppliesActionCard.textContent = planArticle.action || rows.find((row) => row.action)?.action || "—";
+  els.suppliesHint.textContent = `${channel}: ${normalizedRows.length} строк по кластерам. Координатор заполняет поставку, производство, закупку, план отгрузки и ETA. Итого первой строкой уже посчитано.`;
 
-  els.suppliesRowsBody.innerHTML = normalizedRows.map((row) => renderSuppliesRow(channel, row)).join("");
+  els.suppliesRowsBody.innerHTML = renderSuppliesTotalHtml(totalRow) + normalizedRows.map((row) => renderSuppliesRow(channel, row)).join("");
 }
 
 function normalizeSupplyRow(channel, row, targetDays) {
@@ -1210,6 +1422,24 @@ function renderSuppliesRow(channel, row) {
         </select>
       </td>
       <td><textarea class="row-input supply-text" data-field="comment" rows="3" placeholder="Что уже делаем по строке">${escapeHtml(row.comment)}</textarea></td>
+    </tr>
+  `;
+}
+
+function renderSuppliesTotalHtml(total) {
+  return `
+    <tr class="summary-row">
+      <td><strong>ИТОГО</strong></td>
+      <td><strong>${fmtNumber(total.totalOrders7d)}</strong></td>
+      <td><strong>${fmtNumber(total.totalDaily)}</strong></td>
+      <td><strong>${fmtInt(total.totalStock)}</strong></td>
+      <td><strong>${fmtNumber(total.turnoverDays)}</strong></td>
+      <td><strong>${fmtInt(total.totalInTransit)}</strong></td>
+      <td><strong>${fmtInt(total.totalInProduction)}</strong></td>
+      <td><strong>${fmtInt(total.totalInPurchase)}</strong></td>
+      <td><strong>${fmtInt(total.totalNeed)}</strong></td>
+      <td><strong>${fmtInt(total.totalPlannedShip)}</strong></td>
+      <td colspan="3"><strong>Свод по выбранному артикулу</strong></td>
     </tr>
   `;
 }

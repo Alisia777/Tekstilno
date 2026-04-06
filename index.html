@@ -339,38 +339,95 @@
             </label>
           </div>
 
-          <div class="cards cards-6 compact-cards">
-            <article class="card metric"><span>Товар</span><strong id="suppliesTitleCard">—</strong></article>
-            <article class="card metric"><span>Осн. склад</span><strong id="suppliesMainStockCard">—</strong></article>
-            <article class="card metric"><span>На МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
-            <article class="card metric"><span>Спрос / день</span><strong id="suppliesDemandCard">—</strong></article>
-            <article class="card metric"><span>Рекоменд. отгрузка</span><strong id="suppliesRecommendedCard">—</strong></article>
-            <article class="card metric"><span>Кластеров</span><strong id="suppliesRowsCard">—</strong></article>
-          </div>
+          <div class="supplies-grid">
+            <div class="supplies-primary">
+              <div class="cards cards-6 compact-cards">
+                <article class="card metric"><span>Товар</span><strong id="suppliesTitleCard">—</strong></article>
+                <article class="card metric"><span>Осн. склад</span><strong id="suppliesMainStockCard">—</strong></article>
+                <article class="card metric"><span>На МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
+                <article class="card metric"><span>Спрос / день</span><strong id="suppliesDemandCard">—</strong></article>
+                <article class="card metric"><span>Рекоменд. отгрузка</span><strong id="suppliesRecommendedCard">—</strong></article>
+                <article class="card metric"><span>Кластеров</span><strong id="suppliesRowsCard">—</strong></article>
+              </div>
 
-          <p class="subnote" id="suppliesHint">Выбери площадку и артикул.</p>
+              <div class="cards cards-2 supply-focus-cards">
+                <article class="card supply-focus-card">
+                  <span>Почему артикул в фокусе</span>
+                  <strong id="suppliesReasonCard">—</strong>
+                </article>
+                <article class="card supply-focus-card">
+                  <span>Что делаем по артикулу</span>
+                  <strong id="suppliesActionCard">—</strong>
+                </article>
+              </div>
 
-          <div class="table-wrap modern-table-wrap">
-            <table class="data-table modern-table">
-              <thead>
-                <tr>
-                  <th>Кластер / склад</th>
-                  <th>Спрос 7д</th>
-                  <th>Спрос / день</th>
-                  <th>Остаток</th>
-                  <th>Оборачиваемость</th>
-                  <th>В поставке</th>
-                  <th>В производстве</th>
-                  <th>В закупке</th>
-                  <th>Нужно</th>
-                  <th>План отгрузки</th>
-                  <th>ETA</th>
-                  <th>Статус</th>
-                  <th>Комментарий</th>
-                </tr>
-              </thead>
-              <tbody id="suppliesRowsBody"></tbody>
-            </table>
+              <p class="subnote" id="suppliesHint">Выбери площадку и артикул.</p>
+
+              <div class="table-wrap modern-table-wrap">
+                <table class="data-table modern-table">
+                  <thead>
+                    <tr>
+                      <th>Кластер / склад</th>
+                      <th>Спрос 7д</th>
+                      <th>Спрос / день</th>
+                      <th>Остаток</th>
+                      <th>Оборачиваемость</th>
+                      <th>В поставке</th>
+                      <th>В производстве</th>
+                      <th>В закупке</th>
+                      <th>Нужно</th>
+                      <th>План отгрузки</th>
+                      <th>ETA</th>
+                      <th>Статус</th>
+                      <th>Комментарий</th>
+                    </tr>
+                  </thead>
+                  <tbody id="suppliesRowsBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <aside class="supplies-side">
+              <article class="card supplies-summary-card">
+                <div class="section-head compact-head-inline">
+                  <div>
+                    <h3>Сводка по площадке</h3>
+                    <p id="suppliesSummaryMeta">—</p>
+                  </div>
+                  <a href="nina.html" class="btn btn-ghost btn-sm">Матрица Нины</a>
+                </div>
+                <div class="cards cards-2 compact-cards supply-summary-cards">
+                  <article class="card metric"><span>Артикулов</span><strong id="suppliesSummaryArticlesCard">—</strong></article>
+                  <article class="card metric"><span>Кластерных строк</span><strong id="suppliesSummaryRowsCard">—</strong></article>
+                  <article class="card metric"><span>Спрос / день</span><strong id="suppliesSummaryDemandCard">—</strong></article>
+                  <article class="card metric"><span>Запас на МП</span><strong id="suppliesSummaryStockCard">—</strong></article>
+                  <article class="card metric"><span>Осн. склад</span><strong id="suppliesSummaryMainCard">—</strong></article>
+                  <article class="card metric"><span>Нужно к отгрузке</span><strong id="suppliesSummaryNeedCard">—</strong></article>
+                  <article class="card metric"><span>Критично / high</span><strong id="suppliesSummaryCriticalCard">—</strong></article>
+                  <article class="card metric"><span>Есть блокеры</span><strong id="suppliesSummaryBlockedCard">—</strong></article>
+                </div>
+              </article>
+
+              <article class="card supplies-top-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Топ дефицитов</h3>
+                    <p>Клик по артикулу — форма справа переключится на него.</p>
+                  </div>
+                </div>
+                <div id="suppliesTopDeficits" class="deviation-list"></div>
+              </article>
+
+              <article class="card supplies-top-card">
+                <div class="section-head">
+                  <div>
+                    <h3>Требует решения сегодня</h3>
+                    <p>Критично / высокий приоритет и низкое покрытие.</p>
+                  </div>
+                </div>
+                <div id="suppliesAttentionList" class="attention-list"></div>
+              </article>
+            </aside>
           </div>
         </div>
       </section>
