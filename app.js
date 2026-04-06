@@ -2,13 +2,15 @@ const state = {
   config: window.APP_CONFIG || {},
   data: {
     plan: null,
-    clusters: null
+    clusters: null,
+    history: null,
+    historyIndex: {}
   },
   date: "",
   activeTab: "wb",
   filters: {
-    wb: { pack: "current", priority: "all", status: "all", search: "" },
-    ozon: { pack: "current", priority: "all", status: "all", search: "" },
+    wb: { pack: "current", priority: "all", status: "all", search: "", historyMetric: "orders", historyRange: 14 },
+    ozon: { pack: "current", priority: "all", status: "all", search: "", historyMetric: "orders", historyRange: 14 },
     leader: { date: "", type: "all", manager: "all", source: "all" },
     supplies: { channel: "WB", sellerArticle: "", targetDays: 21 }
   },
@@ -77,6 +79,8 @@ function cacheElements() {
     leader: document.getElementById("tab-leader")
   };
   els.openTabButtons = Array.from(document.querySelectorAll("[data-open-tab]"));
+  els.historyMetricButtons = Array.from(document.querySelectorAll("[data-history-metric-value]"));
+  els.historyRangeButtons = Array.from(document.querySelectorAll("[data-history-range-value]"));
 }
 
 function bindEvents() {
@@ -125,6 +129,17 @@ function bindEvents() {
       els[`${prefix}DeviationList`].addEventListener("click", (event) => handleDeviationJump(tabKey, event));
     }
   });
+
+  els.historyMetricButtons.forEach((btn) => btn.addEventListener("click", () => {
+    const tabKey = btn.dataset.tabKey;
+    state.filters[tabKey].historyMetric = btn.dataset.historyMetricValue || "orders";
+    renderManagerInsights(tabKey);
+  }));
+  els.historyRangeButtons.forEach((btn) => btn.addEventListener("click", () => {
+    const tabKey = btn.dataset.tabKey;
+    state.filters[tabKey].historyRange = Number(btn.dataset.historyRangeValue || 14);
+    renderManagerInsights(tabKey);
+  }));
 
   els.suppliesChannel.addEventListener("change", () => {
     state.filters.supplies.channel = els.suppliesChannel.value;
@@ -207,20 +222,37 @@ function setInitialDate() {
 }
 
 async function loadData() {
-  setBanner("Загружаю план/факт по артикулам и кластера…", "info");
+  setBanner("Загружаю план/факт по артикулам, кластера и дневную историю…", "info");
   try {
-    const [plan, clusters] = await Promise.all([
+    const historyPromise = state.config.historyDataUrl
+      ? fetchJson(versionedUrl(state.config.historyDataUrl)).catch((error) => {
+          console.warn("historyDataUrl:", error);
+          return null;
+        })
+      : Promise.resolve(null);
+
+    const [plan, clusters, history] = await Promise.all([
       fetchJson(versionedUrl(state.config.planDataUrl)),
-      fetchJson(versionedUrl(state.config.clusterDataUrl))
+      fetchJson(versionedUrl(state.config.clusterDataUrl)),
+      historyPromise
     ]);
+
     state.data.plan = plan;
     state.data.clusters = clusters;
+    state.data.history = history;
+    state.data.historyIndex = history?.dates
+      ? Object.fromEntries(history.dates.map((dateStr, index) => [dateStr, index]))
+      : {};
 
     const wbStats = countMatchedPlan("wb");
     const ozonStats = countMatchedPlan("ozon");
     els.planFactBadge.textContent = `WB ${wbStats.matched}/${wbStats.total} · Ozon ${ozonStats.matched}/${ozonStats.total}`;
     els.clusterBadge.textContent = `${(clusters.wbRows || []).length} WB / ${(clusters.ozonRows || []).length} Ozon`;
-    setBanner("Данные загружены. Менеджеры отмечают только статусы и комментарии, план/факт уже подставлен.", "success");
+
+    const historyNote = history
+      ? ` Дневной график подключён: WB — ${history.wb?.sourceMode || "оценка"}, Ozon — ${history.ozon?.sourceMode || "факт"}.`
+      : " График строится по текущему среднему, без отдельной дневной истории.";
+    setBanner("Данные загружены. Менеджеры отмечают только статусы и комментарии, план/факт уже подставлен." + historyNote, "success");
   } catch (error) {
     console.error(error);
     setBanner(`Ошибка загрузки данных: ${error.message}`, "error");
@@ -422,8 +454,20 @@ function updateManagerSummary(tabKey) {
 }
 
 function renderManagerInsights(tabKey) {
+  syncHistoryControls(tabKey);
   renderTrendChart(tabKey);
   renderTopDeviationList(tabKey);
+}
+
+function syncHistoryControls(tabKey) {
+  els.historyMetricButtons.forEach((btn) => {
+    const active = btn.dataset.tabKey === tabKey && btn.dataset.historyMetricValue === String(state.filters[tabKey].historyMetric || "orders");
+    btn.classList.toggle("active", active);
+  });
+  els.historyRangeButtons.forEach((btn) => {
+    const active = btn.dataset.tabKey === tabKey && Number(btn.dataset.historyRangeValue || 14) === Number(state.filters[tabKey].historyRange || 14);
+    btn.classList.toggle("active", active);
+  });
 }
 
 function renderTrendChart(tabKey) {
@@ -432,27 +476,221 @@ function renderTrendChart(tabKey) {
   const captionEl = els[`${meta.prefix}TrendCaption`];
   if (!chartEl || !captionEl) return;
 
-  const articles = getScopedManagerArticles(tabKey);
-  const planDaily = sum(articles.map((article) => getArticlePlan(article, state.date)?.planOrdersDay));
-  const factDaily = sum(articles.map((article) => article.metrics?.factOrdersDay));
+  const metric = state.filters[tabKey].historyMetric || "orders";
+  const range = Number(state.filters[tabKey].historyRange || 14);
+  const series = buildDailySeries(tabKey, metric, range);
 
-  if (!articles.length || !isNumber(planDaily) || !isNumber(factDaily)) {
+  if (!series || !series.points.length) {
     chartEl.innerHTML = `<div class="chart-empty">Недостаточно данных для графика.</div>`;
-    captionEl.textContent = "График строится по текущему темпу пакета.";
+    captionEl.textContent = "Как только в истории появятся дневные данные, здесь будет линия план / факт по датам.";
     return;
   }
 
-  const dates = getRecentBusinessDays(state.date, 10);
-  const points = dates.map((dateStr, index) => ({
-    label: dateShortLabel(dateStr),
-    plan: round2(planDaily * (index + 1)),
-    fact: round2(factDaily * (index + 1))
-  }));
+  chartEl.innerHTML = buildTrendSvg(series.points, { metric, sourceMode: series.sourceMode });
 
-  chartEl.innerHTML = buildTrendSvg(points);
-  const delta = factDaily - planDaily;
-  const tone = delta < 0 ? "ниже" : "выше";
-  captionEl.textContent = `Траектория за 10 рабочих дней по текущему темпу пакета. План: ${fmtNumber(planDaily)} / день, факт: ${fmtNumber(factDaily)} / день, сейчас ${tone} плана на ${fmtNumber(Math.abs(delta))}.`;
+  const totalPlan = sum(series.points.map((point) => point.plan)) || 0;
+  const totalFact = sum(series.points.map((point) => point.fact)) || 0;
+  const delta = round2(totalFact - totalPlan);
+  const diffText = delta === 0
+    ? "на уровне плана"
+    : `${delta < 0 ? "ниже" : "выше"} плана на ${formatMetric(metric, Math.abs(delta))}`;
+  const sourceText = series.sourceMode === "actual-daily-orders"
+    ? "факт по дням"
+    : series.sourceMode === "rolling-7d-estimate"
+      ? "факт по 7д среднему"
+      : "факт по текущему среднему";
+  const lagText = state.date > series.endDate ? ` Данные пока доступны до ${formatDateRuShort(series.endDate)}.` : "";
+  captionEl.textContent = `${metric === "orders" ? "Заказы" : "Выручка"} за ${range} дн.: план ${formatMetric(metric, totalPlan)} · факт ${formatMetric(metric, totalFact)} · ${diffText}. Источник: ${sourceText}.${lagText}`;
+}
+
+function buildDailySeries(tabKey, metric, range) {
+  const articles = getScopedManagerArticles(tabKey);
+  const endDate = getEffectiveHistoryEndDate(tabKey);
+  if (!articles.length || !endDate) return null;
+
+  const dates = getDateWindow(endDate, range);
+  const points = dates.map((dateStr) => {
+    const dateObj = new Date(`${dateStr}T00:00:00`);
+    const plan = round2(articles.reduce((acc, article) => acc + getDailyPlanMetric(article, dateStr, metric), 0));
+    const fact = round2(articles.reduce((acc, article) => acc + getDailyFactMetric(tabKey, article, dateStr, metric), 0));
+    return {
+      label: dateShortLabel(dateStr),
+      fullLabel: dateStr,
+      plan,
+      fact,
+      weekend: !isBusinessDay(dateObj)
+    };
+  });
+
+  const hasMeaningfulData = points.some((point) => point.plan > 0 || point.fact > 0);
+  if (!hasMeaningfulData) return null;
+
+  return {
+    points,
+    endDate,
+    sourceMode: getHistoryTabData(tabKey)?.sourceMode || "fallback-average"
+  };
+}
+
+function getHistoryTabData(tabKey) {
+  return state.data.history?.[tabKey] || null;
+}
+
+function getEffectiveHistoryEndDate(tabKey) {
+  const availableThrough = getHistoryTabData(tabKey)?.availableThrough || state.date;
+  if (!state.date) return availableThrough || null;
+  if (!availableThrough) return state.date;
+  return state.date < availableThrough ? state.date : availableThrough;
+}
+
+function getDateWindow(endDateStr, count) {
+  if (!endDateStr || !count) return [];
+  const endDate = new Date(`${endDateStr}T00:00:00`);
+  const dates = [];
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const cursor = new Date(endDate);
+    cursor.setDate(cursor.getDate() - offset);
+    dates.push(formatDateInput(cursor));
+  }
+  return dates;
+}
+
+function getDailyPlanMetric(article, dateStr, metric) {
+  const plan = getArticlePlan(article, dateStr);
+  if (!plan) return 0;
+  const dateObj = new Date(`${dateStr}T00:00:00`);
+  if (!isBusinessDay(dateObj)) return 0;
+  if (metric === "revenue") return asNumber(plan.planRevenueDay) || 0;
+  return asNumber(plan.planOrdersDay) || 0;
+}
+
+function getDailyFactMetric(tabKey, article, dateStr, metric) {
+  const historyValue = getHistoryValue(tabKey, article.sellerArticle, dateStr, metric);
+  if (historyValue !== undefined) return historyValue;
+  if (metric === "revenue") return asNumber(article.metrics?.factMoneyDay) || 0;
+  return asNumber(article.metrics?.factOrdersDay) || 0;
+}
+
+function getHistoryValue(tabKey, sellerArticle, dateStr, metric) {
+  const tabData = getHistoryTabData(tabKey);
+  const historyIndex = state.data.historyIndex || {};
+  const idx = historyIndex[dateStr];
+  if (!tabData || idx === undefined) return undefined;
+  const series = tabData.articles?.[sellerArticle]?.[metric];
+  if (!Array.isArray(series)) return undefined;
+  const raw = series[idx];
+  const value = asNumber(raw);
+  return value === null ? undefined : value;
+}
+
+function buildTrendSvg(points, options = {}) {
+  if (!points.length) {
+    return `<div class="chart-empty">Нет точек для графика.</div>`;
+  }
+
+  const metric = options.metric || "orders";
+  const width = 760;
+  const height = 250;
+  const left = 56;
+  const right = 20;
+  const top = 18;
+  const bottom = 34;
+  const innerW = width - left - right;
+  const innerH = height - top - bottom;
+  const maxY = Math.max(...points.flatMap((point) => [point.plan, point.fact]), 1);
+  const niceMax = metric === "revenue"
+    ? Math.ceil(maxY / 5000) * 5000 || 5000
+    : Math.ceil(maxY / 10) * 10 || 10;
+  const yTicks = 4;
+  const xStep = points.length > 1 ? innerW / (points.length - 1) : innerW;
+
+  const scaleY = (value) => top + innerH - (value / niceMax) * innerH;
+  const scaleX = (index) => left + index * xStep;
+  const labelStep = points.length <= 10 ? 1 : points.length <= 18 ? 2 : 3;
+
+  const planPath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(index).toFixed(2)} ${scaleY(point.plan).toFixed(2)}`).join(" ");
+  const factPath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${scaleX(index).toFixed(2)} ${scaleY(point.fact).toFixed(2)}`).join(" ");
+  const factAreaPath = `${factPath} L ${scaleX(points.length - 1).toFixed(2)} ${height - bottom} L ${scaleX(0).toFixed(2)} ${height - bottom} Z`;
+
+  const weekendBands = points.map((point, index) => {
+    if (!point.weekend) return "";
+    const bandWidth = points.length > 1 ? xStep : innerW;
+    const x = scaleX(index) - bandWidth / 2;
+    return `<rect class="trend-weekend" x="${x}" y="${top}" width="${bandWidth}" height="${innerH}" />`;
+  }).join("");
+
+  const gridLines = Array.from({ length: yTicks + 1 }, (_, idx) => {
+    const value = niceMax * (idx / yTicks);
+    const y = scaleY(value);
+    return `<g><line class="trend-grid" x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" /><text x="12" y="${y + 4}">${escapeHtml(formatAxisMetric(metric, value))}</text></g>`;
+  }).join("");
+
+  const xLabels = points.map((point, index) => {
+    if (index % labelStep !== 0 && index !== points.length - 1) return "";
+    const x = scaleX(index);
+    return `<text x="${x}" y="${height - 12}" text-anchor="middle">${escapeHtml(point.label)}</text>`;
+  }).join("");
+
+  const factPoints = points.map((point, index) => {
+    const x = scaleX(index);
+    const y = scaleY(point.fact);
+    return `<circle class="trend-point-fact" cx="${x}" cy="${y}" r="3.5"><title>${escapeHtml(`${point.fullLabel}: факт ${formatMetric(metric, point.fact)}`)}</title></circle>`;
+  }).join("");
+  const planPoints = points.map((point, index) => {
+    const x = scaleX(index);
+    const y = scaleY(point.plan);
+    return `<circle class="trend-point-plan" cx="${x}" cy="${y}" r="3"><title>${escapeHtml(`${point.fullLabel}: план ${formatMetric(metric, point.plan)}`)}</title></circle>`;
+  }).join("");
+
+  return `
+    <svg class="trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="План и факт по дням">
+      <defs>
+        <linearGradient id="factAreaGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#d65f73" />
+          <stop offset="100%" stop-color="#d65f73" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      ${weekendBands}
+      ${gridLines}
+      <line class="trend-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" />
+      <path class="trend-fact-area" d="${factAreaPath}" />
+      <path class="trend-plan" d="${planPath}" />
+      <path class="trend-fact" d="${factPath}" />
+      ${planPoints}
+      ${factPoints}
+      <g transform="translate(${left}, 16)">
+        <line x1="0" y1="0" x2="20" y2="0" class="trend-plan"></line>
+        <text class="legend-label" x="28" y="4">План</text>
+        <line x1="92" y1="0" x2="112" y2="0" class="trend-fact"></line>
+        <text class="legend-label" x="120" y="4">Факт</text>
+      </g>
+      ${xLabels}
+    </svg>
+  `;
+}
+
+function formatMetric(metric, value) {
+  return metric === "revenue" ? fmtMoney(value) : fmtNumber(value);
+}
+
+function formatAxisMetric(metric, value) {
+  const abs = Math.abs(value);
+  if (metric === "revenue") {
+    if (abs >= 1000000) return `${fmtNumber(round2(value / 1000000))}м`;
+    if (abs >= 1000) return `${fmtNumber(round2(value / 1000))}к`;
+    return fmtInt(value);
+  }
+  if (abs >= 1000) {
+    return new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  }
+  return fmtNumber(value);
+}
+
+function formatDateRuShort(dateStr) {
+  if (!dateStr) return "";
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(date);
 }
 
 function renderTopDeviationList(tabKey) {
@@ -462,21 +700,24 @@ function renderTopDeviationList(tabKey) {
 
   const managerData = getManagerData(tabKey);
   const currentPack = getCurrentPackNumber(managerData, state.date);
+  const range = Number(state.filters[tabKey].historyRange || 14);
+  const dates = getDateWindow(getEffectiveHistoryEndDate(tabKey), range);
+
   const rows = (managerData?.articles || [])
     .map((article) => {
-      const plan = getArticlePlan(article, state.date);
-      const fact = article.metrics || {};
-      const delta = getArticleDelta(article, state.date);
-      if (!plan || !isNumber(plan.planOrdersDay) || !isNumber(fact.factOrdersDay) || !isNumber(delta) || delta >= 0) return null;
+      const planTotal = round2(dates.reduce((acc, dateStr) => acc + getDailyPlanMetric(article, dateStr, "orders"), 0));
+      const factTotal = round2(dates.reduce((acc, dateStr) => acc + getDailyFactMetric(tabKey, article, dateStr, "orders"), 0));
+      const gap = round2(planTotal - factTotal);
+      if (!isNumber(planTotal) || planTotal <= 0 || !isNumber(gap) || gap <= 0) return null;
+
       return {
         article,
-        delta,
-        gap: round2(plan.planOrdersDay - fact.factOrdersDay),
-        ratio: plan.planOrdersDay ? round2(((plan.planOrdersDay - fact.factOrdersDay) / plan.planOrdersDay) * 100) : null,
-        packLabel: Number(article.packNumber || 1) === Number(currentPack) ? 'в текущем пакете' : `пакет ${article.packNumber || 1}`,
+        gap,
+        ratio: planTotal ? round2((gap / planTotal) * 100) : null,
+        packLabel: Number(article.packNumber || 1) === Number(currentPack) ? "в текущем пакете" : `пакет ${article.packNumber || 1}`,
         current: Number(article.packNumber || 1) === Number(currentPack),
-        planOrdersDay: plan.planOrdersDay,
-        factOrdersDay: fact.factOrdersDay
+        planTotal,
+        factTotal
       };
     })
     .filter(Boolean);
@@ -499,10 +740,10 @@ function renderTopDeviationList(tabKey) {
       <span class="rank-badge">${index + 1}</span>
       <div class="deviation-main">
         <strong>${escapeHtml(row.article.sellerArticle)}</strong>
-        <small>${escapeHtml(row.article.name || 'Без названия')}</small>
+        <small>${escapeHtml(row.article.name || "Без названия")}</small>
         <div class="deviation-meta">
-          <span class="mini-chip">План <b>${fmtNumber(row.planOrdersDay)}</b></span>
-          <span class="mini-chip">Факт <b>${fmtNumber(row.factOrdersDay)}</b></span>
+          <span class="mini-chip">План ${range}д <b>${fmtNumber(row.planTotal)}</b></span>
+          <span class="mini-chip">Факт ${range}д <b>${fmtNumber(row.factTotal)}</b></span>
           <span class="mini-chip negative">-${fmtNumber(row.gap)}</span>
           <span class="mini-chip">${fmtInt(row.article.metrics?.supplyNeed)} шт к допоставке</span>
         </div>
@@ -530,58 +771,6 @@ function handleDeviationJump(tabKey, event) {
   renderManagerTable(tabKey);
   updateManagerSummary(tabKey);
   showToast(`Открыт артикул ${article}.`);
-}
-
-function buildTrendSvg(points) {
-  if (!points.length) {
-    return `<div class="chart-empty">Нет точек для графика.</div>`;
-  }
-  const width = 760;
-  const height = 250;
-  const left = 54;
-  const right = 20;
-  const top = 20;
-  const bottom = 34;
-  const innerW = width - left - right;
-  const innerH = height - top - bottom;
-  const maxY = Math.max(...points.flatMap((p) => [p.plan, p.fact]), 1);
-  const niceMax = Math.ceil(maxY / 10) * 10;
-  const yTicks = 4;
-  const xStep = points.length > 1 ? innerW / (points.length - 1) : innerW;
-  const scaleY = (value) => top + innerH - (value / niceMax) * innerH;
-  const scaleX = (index) => left + index * xStep;
-  const planPath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index).toFixed(2)} ${scaleY(point.plan).toFixed(2)}`).join(' ');
-  const factPath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index).toFixed(2)} ${scaleY(point.fact).toFixed(2)}`).join(' ');
-
-  const gridLines = Array.from({ length: yTicks + 1 }, (_, idx) => {
-    const value = niceMax * (idx / yTicks);
-    const y = scaleY(value);
-    return `<g><line class="trend-grid" x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" /><text x="12" y="${y + 4}">${fmtNumber(value)}</text></g>`;
-  }).join('');
-
-  const xLabels = points.map((point, index) => {
-    const x = scaleX(index);
-    return `<text x="${x}" y="${height - 12}" text-anchor="middle">${escapeHtml(point.label)}</text>`;
-  }).join('');
-
-  const lastIndex = points.length - 1;
-  return `
-    <svg class="trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Темп к плану">
-      ${gridLines}
-      <line class="trend-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" />
-      <path class="trend-plan" d="${planPath}" />
-      <path class="trend-fact" d="${factPath}" />
-      <circle class="trend-point-plan" cx="${scaleX(lastIndex)}" cy="${scaleY(points[lastIndex].plan)}" r="4.5" />
-      <circle class="trend-point-fact" cx="${scaleX(lastIndex)}" cy="${scaleY(points[lastIndex].fact)}" r="4.5" />
-      <g transform="translate(${left}, 16)">
-        <line x1="0" y1="0" x2="20" y2="0" class="trend-plan"></line>
-        <text class="legend-label" x="28" y="4">План</text>
-        <line x1="92" y1="0" x2="112" y2="0" class="trend-fact"></line>
-        <text class="legend-label" x="120" y="4">Факт</text>
-      </g>
-      ${xLabels}
-    </svg>
-  `;
 }
 
 function getRecentBusinessDays(dateStr, count) {

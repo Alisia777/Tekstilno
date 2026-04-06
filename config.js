@@ -1,10 +1,12 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v10.0",
+  siteVersion: "v11.1",
   appsScriptUrl: "",
   googleSheetUrl: "",
+  enableRemoteDashboard: true,
   packSize: 20,
   maxLocalSubmissions: 500,
   planDataUrl: "data/article-plan.json",
-  clusterDataUrl: "data/cluster-reference.json"
+  clusterDataUrl: "data/cluster-reference.json",
+  historyDataUrl: "data/history-data.json"
 };

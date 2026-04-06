@@ -298,6 +298,43 @@ h4 { font-size: 14px; line-height: 1.2; }
   color: var(--muted);
 }
 
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f7faff;
+  gap: 4px;
+}
+.seg-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.seg-btn:hover {
+  color: var(--text);
+  background: rgba(39, 85, 190, 0.06);
+}
+.seg-btn.active {
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
 .trend-chart {
   min-height: 250px;
   border: 1px solid var(--line);
@@ -330,8 +367,10 @@ h4 { font-size: 14px; line-height: 1.2; }
 }
 .trend-grid { stroke: #e5ebf6; stroke-width: 1; }
 .trend-axis { stroke: #cfd8ea; stroke-width: 1; }
+.trend-weekend { fill: rgba(98, 116, 148, 0.06); }
 .trend-plan { fill: none; stroke: var(--blue); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .trend-fact { fill: none; stroke: var(--red); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.trend-fact-area { fill: url(#factAreaGradient); opacity: 0.25; }
 .trend-point-plan { fill: var(--blue); }
 .trend-point-fact { fill: var(--red); }
 .legend-label { font-weight: 700; }

@@ -76,8 +76,19 @@
             <article class="card chart-card">
               <div class="section-head">
                 <div>
-                  <h3>Темп к плану</h3>
-                  <p>Пакет на выбранную дату.</p>
+                  <h3>План / факт по дням</h3>
+                  <p>Дневная линия по пакету на выбранную дату.</p>
+                </div>
+                <div class="chart-controls">
+                  <div class="segmented">
+                    <button type="button" class="seg-btn active" data-tab-key="wb" data-history-metric-value="orders">Заказы</button>
+                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-metric-value="revenue">Выручка</button>
+                  </div>
+                  <div class="segmented">
+                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-range-value="7">7 дн</button>
+                    <button type="button" class="seg-btn active" data-tab-key="wb" data-history-range-value="14">14 дн</button>
+                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-range-value="30">30 дн</button>
+                  </div>
                 </div>
               </div>
               <div id="wbTrendChart" class="trend-chart"></div>
@@ -195,8 +206,19 @@
             <article class="card chart-card">
               <div class="section-head">
                 <div>
-                  <h3>Темп к плану</h3>
-                  <p>Пакет на выбранную дату.</p>
+                  <h3>План / факт по дням</h3>
+                  <p>Дневная линия по пакету на выбранную дату.</p>
+                </div>
+                <div class="chart-controls">
+                  <div class="segmented">
+                    <button type="button" class="seg-btn active" data-tab-key="ozon" data-history-metric-value="orders">Заказы</button>
+                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-metric-value="revenue">Выручка</button>
+                  </div>
+                  <div class="segmented">
+                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-range-value="7">7 дн</button>
+                    <button type="button" class="seg-btn active" data-tab-key="ozon" data-history-range-value="14">14 дн</button>
+                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-range-value="30">30 дн</button>
+                  </div>
                 </div>
               </div>
               <div id="ozonTrendChart" class="trend-chart"></div>
