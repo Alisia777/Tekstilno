@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v11.1",
+  siteVersion: "v12.0",
   appsScriptUrl: "",
   googleSheetUrl: "",
   enableRemoteDashboard: true,

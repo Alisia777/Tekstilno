@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Текстильно — Нина · кластеры WB / Ozon</title>
+  <meta name="description" content="Кластеры WB и Ozon для Нины: матрица по артикулам, запасам, производству, закупке, оборачиваемости и заказу товара." />
+  <link rel="stylesheet" href="nina.css" />
+  <script src="config.js"></script>
+  <script defer src="nina.js"></script>
+</head>
+<body>
+  <div class="nina-page">
+    <header class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Текстильно · Нина</span>
+        <h1>Кластеры WB / Ozon и заказ товара</h1>
+        <p>Слева — артикула по размерам, сверху — кластеры, внутри — заказы, сезонный план/день, запас, производство, закупка, оборачиваемость и рекомендуемая отгрузка.</p>
+      </div>
+      <div class="hero-actions">
+        <a class="btn btn-ghost" href="index.html">← Вернуться в основной сайт</a>
+        <button class="btn btn-primary" id="exportAllBtn" type="button">Экспорт JSON</button>
+        <label class="btn btn-ghost btn-file" for="importAllInput">Импорт JSON<input id="importAllInput" type="file" accept=".json" /></label>
+      </div>
+    </header>
+
+    <section class="control-bar">
+      <div class="segmented" id="platformToggle">
+        <button type="button" class="seg-btn active" data-platform="WB">WB</button>
+        <button type="button" class="seg-btn" data-platform="Ozon">Ozon</button>
+      </div>
+
+      <div class="segmented" id="pageToggle">
+        <button type="button" class="seg-btn active" data-page="matrix">Матрица</button>
+        <button type="button" class="seg-btn" data-page="stock">Запасы и оборачиваемость</button>
+        <button type="button" class="seg-btn" data-page="orders">Заказ товара</button>
+        <button type="button" class="seg-btn" data-page="inputs">Внесение данных</button>
+        <button type="button" class="seg-btn" data-page="formula">Как считаем</button>
+      </div>
+
+      <div class="control-inline">
+        <label class="field compact">
+          <span>Месяц плана</span>
+          <input id="reportMonthBadge" type="text" disabled />
+        </label>
+        <label class="field compact">
+          <span>Целевые дни</span>
+          <input id="targetDaysInput" type="number" min="7" max="60" step="1" value="21" />
+        </label>
+      </div>
+    </section>
+
+    <section class="cards">
+      <article class="card metric"><span>Артикулы</span><strong id="sumArticles">—</strong></article>
+      <article class="card metric"><span>Кластеры</span><strong id="sumClusters">—</strong></article>
+      <article class="card metric"><span>Спрос / день</span><strong id="sumDaily">—</strong></article>
+      <article class="card metric"><span>Запас в кластерах</span><strong id="sumStock">—</strong></article>
+      <article class="card metric"><span>Осн. склад</span><strong id="sumMainStock">—</strong></article>
+      <article class="card metric highlight"><span>Реком. отгрузка</span><strong id="sumNeed">—</strong></article>
+    </section>
+
+    <main class="page-panels">
+      <section class="page-panel active" id="page-matrix">
+        <div class="layout-grid">
+          <div class="main-panel">
+            <div class="toolbar">
+              <label class="field search">
+                <span>Поиск</span>
+                <input type="search" id="searchInput" placeholder="Артикул, размер или название" />
+              </label>
+              <label class="field compact">
+                <span>Показывать</span>
+                <select id="showModeSelect">
+                  <option value="all">Все строки</option>
+                  <option value="need">Только где есть потребность</option>
+                  <option value="priority">Только критично / высокий</option>
+                  <option value="manual">Только где есть ручные данные</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>Лимит строк</span>
+                <select id="rowLimitSelect">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="9999">Все</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>Сортировка</span>
+                <select id="sortSelect">
+                  <option value="need">По рекомендуемой отгрузке</option>
+                  <option value="priority">По приоритету</option>
+                  <option value="daily">По спросу / день</option>
+                  <option value="article">По артикулу</option>
+                </select>
+              </label>
+            </div>
+            <div class="table-meta" id="matrixMeta">Загружаю матрицу…</div>
+            <div class="matrix-wrap">
+              <table class="matrix-table">
+                <thead id="matrixHead"></thead>
+                <tbody id="matrixBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside class="side-panel">
+            <div class="side-card">
+              <div class="side-head">
+                <h2>Карточка артикула</h2>
+                <p id="selectedSubtitle">Выбери артикул из таблицы слева.</p>
+              </div>
+              <div id="selectedArticleCard" class="selected-card empty">Пока ничего не выбрано.</div>
+            </div>
+
+            <div class="side-card">
+              <div class="side-head">
+                <h2>Быстрое внесение данных</h2>
+                <p>В пути, производство, закупка, override сезонности и целевые дни.</p>
+              </div>
+              <form id="quickInputForm" class="stack-form">
+                <label class="field">
+                  <span>Артикул</span>
+                  <select id="quickArticleSelect"></select>
+                </label>
+                <label class="field">
+                  <span>Кластер</span>
+                  <select id="quickClusterSelect"></select>
+                </label>
+                <div class="field-grid">
+                  <label class="field compact"><span>В пути</span><input id="quickTransitInput" type="number" min="0" step="1" /></label>
+                  <label class="field compact"><span>Производство</span><input id="quickProductionInput" type="number" min="0" step="1" /></label>
+                  <label class="field compact"><span>Закупка</span><input id="quickProcurementInput" type="number" min="0" step="1" /></label>
+                  <label class="field compact"><span>Целевые дни</span><input id="quickTargetDaysInput" type="number" min="7" step="1" /></label>
+                  <label class="field compact"><span>Seasonality override</span><input id="quickSeasonalityInput" type="number" min="0" step="0.1" /></label>
+                </div>
+                <label class="field">
+                  <span>Комментарий</span>
+                  <textarea id="quickCommentInput" rows="3" placeholder="Что уже в пути / кто взял в работу"></textarea>
+                </label>
+                <div class="form-actions">
+                  <button class="btn btn-primary" type="submit">Сохранить данные</button>
+                  <button class="btn btn-ghost" id="quickClearBtn" type="button">Очистить</button>
+                </div>
+              </form>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page-panel" id="page-stock">
+        <div class="main-panel">
+          <div class="section-head">
+            <div>
+              <h2>Запасы / заказы / производство / оборачиваемость</h2>
+              <p>Плоская таблица по кластерам. Можно смотреть отдельно от большой матрицы.</p>
+            </div>
+            <div class="section-actions">
+              <button class="btn btn-ghost" id="exportStockBtn" type="button">Экспорт CSV</button>
+            </div>
+          </div>
+          <div class="list-wrap">
+            <table class="simple-table">
+              <thead>
+                <tr>
+                  <th>Артикул</th>
+                  <th>Товар</th>
+                  <th>Кластер</th>
+                  <th>7д</th>
+                  <th>План/д</th>
+                  <th>Запас</th>
+                  <th>В пути</th>
+                  <th>Пр-во</th>
+                  <th>Закуп</th>
+                  <th>Оборач.</th>
+                  <th>Нужно</th>
+                  <th>Осн. склад</th>
+                </tr>
+              </thead>
+              <tbody id="stockBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="page-panel" id="page-orders">
+        <div class="orders-grid">
+          <div class="main-panel">
+            <div class="section-head">
+              <div>
+                <h2>Заявка на товар</h2>
+                <p>Из дефицита сразу сделать заявку на отгрузку / производство / закупку.</p>
+              </div>
+              <div class="section-actions">
+                <button class="btn btn-ghost" id="exportOrdersBtn" type="button">Экспорт заявок CSV</button>
+              </div>
+            </div>
+            <form id="orderForm" class="order-form">
+              <label class="field">
+                <span>Артикул</span>
+                <select id="orderArticleSelect"></select>
+              </label>
+              <label class="field">
+                <span>Кластер</span>
+                <select id="orderClusterSelect"></select>
+              </label>
+              <label class="field compact">
+                <span>Реком.</span>
+                <input id="orderRecommendedInput" type="number" disabled />
+              </label>
+              <label class="field compact">
+                <span>Заказать</span>
+                <input id="orderQtyInput" type="number" min="0" step="1" />
+              </label>
+              <label class="field compact">
+                <span>Источник</span>
+                <select id="orderSourceSelect">
+                  <option value="main-stock">Осн. склад</option>
+                  <option value="production">Производство</option>
+                  <option value="procurement">Закупка</option>
+                  <option value="mix">Комбинированно</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>Приоритет</span>
+                <select id="orderPrioritySelect">
+                  <option value="critical">Критично</option>
+                  <option value="high">Высокий</option>
+                  <option value="medium">Средний</option>
+                  <option value="low">Низкий</option>
+                </select>
+              </label>
+              <label class="field compact">
+                <span>ETA</span>
+                <input id="orderEtaInput" type="date" />
+              </label>
+              <label class="field">
+                <span>Комментарий</span>
+                <textarea id="orderCommentInput" rows="3" placeholder="Откуда закрываем, кто ответственный"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="btn btn-primary" type="submit">Сохранить заявку</button>
+                <button class="btn btn-ghost" id="resetOrderBtn" type="button">Очистить форму</button>
+              </div>
+            </form>
+            <div class="list-wrap">
+              <table class="simple-table">
+                <thead>
+                  <tr><th>Дата</th><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>Кол-во</th><th>Источник</th><th>ETA</th><th>Комментарий</th></tr>
+                </thead>
+                <tbody id="ordersBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <aside class="side-panel">
+            <div class="side-card">
+              <div class="side-head">
+                <h2>Топ дефицитов</h2>
+                <p>Клик по строке — заявка заполнится автоматически.</p>
+              </div>
+              <div id="topDeficitsList" class="deficit-list"></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="page-panel" id="page-inputs">
+        <div class="main-panel">
+          <div class="section-head">
+            <div>
+              <h2>Внесенные данные</h2>
+              <p>Журнал ручных данных по кластерам: в пути, производство, закупка, overrides.</p>
+            </div>
+            <div class="section-actions">
+              <button class="btn btn-ghost" id="exportInputsBtn" type="button">Экспорт данных CSV</button>
+            </div>
+          </div>
+          <div class="list-wrap">
+            <table class="simple-table">
+              <thead>
+                <tr><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>В пути</th><th>Пр-во</th><th>Закупка</th><th>Целевые дни</th><th>Override</th><th>Комментарий</th></tr>
+              </thead>
+              <tbody id="inputsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="page-panel" id="page-formula">
+        <div class="formula-grid">
+          <article class="formula-card">
+            <h2>Как считаем потребность</h2>
+            <ol>
+              <li><strong>Доля кластера</strong> = заказы 7д кластера / заказы 7д артикула.</li>
+              <li><strong>Сезонный план / день</strong> = план дня текущего месяца × доля кластера.</li>
+              <li><strong>Спрос / день для расчёта</strong> = максимум из фактического среднего дня и сезонного плана.</li>
+              <li><strong>Доступно</strong> = запас в кластере + в пути + производство + закупка.</li>
+              <li><strong>Реком. отгрузка</strong> = max(0, спрос/день × целевые дни − доступно).</li>
+            </ol>
+          </article>
+          <article class="formula-card">
+            <h2>Как учли сезонность</h2>
+            <p>Сезонность не «на глаз». Для артикула берется план/день по месяцам и рассчитывается коэффициент сезона:</p>
+            <p><strong>Коэф. сезона</strong> = план/день текущего месяца ÷ средний план/день по доступным месяцам.</p>
+            <p>Если нужно, в форме можно задать <strong>seasonality override</strong> и пересчитать товар вручную.</p>
+          </article>
+          <article class="formula-card">
+            <h2>Логика работы Нины</h2>
+            <ul>
+              <li>Смотреть матрицу и фильтр «Только где есть потребность».</li>
+              <li>Если часть товара уже едет / в производстве / в закупке — заносить это в форму.</li>
+              <li>После этого формировать заявки на товар по кластерам.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+  </div>
+</body>
+</html>
