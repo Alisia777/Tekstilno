@@ -1,0 +1,207 @@
+{
+  "generatedAt": "2026-04-06T19:01:07",
+  "note": "На demo-версии документы лежат локально в папке library/. Для боевого запуска на публичном домене лучше заменить href на ссылки Google Drive / SharePoint с доступом по ролям.",
+  "groups": [
+    {
+      "title": "Портал / техконтур",
+      "items": [
+        {
+          "title": "README портала",
+          "description": "Как запускать, деплоить и обновлять портал.",
+          "type": "MD",
+          "href": "library/portal_readme.md",
+          "filename": "portal_readme.md",
+          "sizeMb": 0.01
+        },
+        {
+          "title": "Аудит сайта",
+          "description": "Что уже работает и что осталось доделать.",
+          "type": "MD",
+          "href": "library/portal_site_audit.md",
+          "filename": "portal_site_audit.md",
+          "sizeMb": 0.0
+        },
+        {
+          "title": "План доработок портала",
+          "description": "Пошаговый backlog по развитию портала.",
+          "type": "MD",
+          "href": "library/portal_action_plan.md",
+          "filename": "portal_action_plan.md",
+          "sizeMb": 0.0
+        },
+        {
+          "title": "Командный режим / Supabase setup",
+          "description": "Как подключить общую базу задач, комментариев, решений и owner.",
+          "type": "MD",
+          "href": "library/team_backend_setup.md",
+          "filename": "team_backend_setup.md",
+          "sizeMb": 0.01
+        }
+      ]
+    },
+    {
+      "title": "Стратегия и процессы",
+      "items": [
+        {
+          "title": "IBP · Рабочая система встреч",
+          "description": "Ритм weekly / monthly / PMR и обязательные выходы.",
+          "type": "PDF",
+          "href": "library/ibp_system_v7.pdf",
+          "filename": "ibp_system_v7.pdf",
+          "sizeMb": 0.11
+        },
+        {
+          "title": "Заметки по команде",
+          "description": "Боли по взаимодействию, внешнему трафику, новинкам и ролям.",
+          "type": "TXT",
+          "href": "library/team_notes.txt",
+          "filename": "team_notes.txt",
+          "sizeMb": 0.0
+        },
+        {
+          "title": "Карта процессов Qharisma",
+          "description": "Карта рабочих процессов и контуров.",
+          "type": "XLSX",
+          "href": "library/qharisma_process_map.xlsx",
+          "filename": "qharisma_process_map.xlsx",
+          "sizeMb": 0.19
+        }
+      ]
+    },
+    {
+      "title": "Планирование и аналитика",
+      "items": [
+        {
+          "title": "План продаж",
+          "description": "План по SKU и периодам.",
+          "type": "XLSX",
+          "href": "library/plan_sales.xlsx",
+          "filename": "plan_sales.xlsx",
+          "sizeMb": 8.23
+        },
+        {
+          "title": "Выполнение плана",
+          "description": "Ручной срез по выполнению плана.",
+          "type": "XLSX",
+          "href": "library/plan_fact_manual.xlsx",
+          "filename": "plan_fact_manual.xlsx",
+          "sizeMb": 0.25
+        },
+        {
+          "title": "Еженедельный отчёт",
+          "description": "Сводный weekly-отчёт.",
+          "type": "XLSX",
+          "href": "library/weekly_report.xlsx",
+          "filename": "weekly_report.xlsx",
+          "sizeMb": 0.03
+        },
+        {
+          "title": "Продуктовый лидерборд",
+          "description": "ROMI, доходы и лидеры по контенту.",
+          "type": "XLSX",
+          "href": "library/product_leaderboard_mar_apr.xlsx",
+          "filename": "product_leaderboard_mar_apr.xlsx",
+          "sizeMb": 0.04
+        },
+        {
+          "title": "Каталог товаров",
+          "description": "Базовый каталог SKU для сборки портала.",
+          "type": "CSV",
+          "href": "library/products_catalog.csv",
+          "filename": "products_catalog.csv",
+          "sizeMb": 0.09
+        }
+      ]
+    },
+    {
+      "title": "Цена и репрайсер",
+      "items": [
+        {
+          "title": "Репрайсер · 27.03",
+          "description": "Актуальный репрайсер WB/Ozon.",
+          "type": "XLSX",
+          "href": "library/repricer_2026_03_27.xlsx",
+          "filename": "repricer_2026_03_27.xlsx",
+          "sizeMb": 5.49
+        },
+        {
+          "title": "Репрайсер · 20.03",
+          "description": "Предыдущая версия репрайсера.",
+          "type": "XLSX",
+          "href": "library/repricer_2026_03_20.xlsx",
+          "filename": "repricer_2026_03_20.xlsx",
+          "sizeMb": 3.86
+        },
+        {
+          "title": "Реестр закреплений · Для Анны",
+          "description": "Один из рабочих реестров закреплений по SKU.",
+          "type": "XLSX",
+          "href": "library/owner_registry_anna.xlsx",
+          "filename": "owner_registry_anna.xlsx",
+          "sizeMb": 2.19
+        },
+        {
+          "title": "Рабочие спецификации v2",
+          "description": "Рабочий файл со спецификациями и закреплениями.",
+          "type": "XLSX",
+          "href": "library/working_specs_v2.xlsx",
+          "filename": "working_specs_v2.xlsx",
+          "sizeMb": 1.81
+        }
+      ]
+    },
+    {
+      "title": "Новинки и supply",
+      "items": [
+        {
+          "title": "Планирование новинок Алтея",
+          "description": "Календарь новинок и пайплайн запусков.",
+          "type": "XLSX",
+          "href": "library/launch_plan_altea.xlsx",
+          "filename": "launch_plan_altea.xlsx",
+          "sizeMb": 0.25
+        },
+        {
+          "title": "Stocks report",
+          "description": "Срез по остаткам и складам.",
+          "type": "XLSX",
+          "href": "library/stocks_report.xlsx",
+          "filename": "stocks_report.xlsx",
+          "sizeMb": 0.17
+        },
+        {
+          "title": "Returns report",
+          "description": "Подробный отчёт по возвратам.",
+          "type": "XLSX",
+          "href": "library/returns_report.xlsx",
+          "filename": "returns_report.xlsx",
+          "sizeMb": 2.56
+        },
+        {
+          "title": "Склад Балашиха",
+          "description": "Рабочий складской файл.",
+          "type": "XLSX",
+          "href": "library/warehouse_balashikha.xlsx",
+          "filename": "warehouse_balashikha.xlsx",
+          "sizeMb": 0.22
+        },
+        {
+          "title": "Supplier goods · март",
+          "description": "Выгрузка supplier goods за март.",
+          "type": "XLSX",
+          "href": "library/supplier_goods_mar.xlsx",
+          "filename": "supplier_goods_mar.xlsx",
+          "sizeMb": 0.18
+        },
+        {
+          "title": "Supplier goods · февраль",
+          "description": "Выгрузка supplier goods за февраль.",
+          "type": "XLSX",
+          "href": "library/supplier_goods_feb.xlsx",
+          "filename": "supplier_goods_feb.xlsx",
+          "sizeMb": 0.18
+        }
+      ]
+    }
+  ]
+}

@@ -1,518 +1,111 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Текстильно — контроль задач, план/факт и поставки</title>
-  <meta name="description" content="Рабочий сайт Текстильно: вкладки WB, Ozon, Поставки и Руководитель. Менеджеры отмечают только задачи, а план/факт подтягивается автоматически." />
-  <link rel="stylesheet" href="styles.css" />
-  <script src="config.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Altea Portal · GitHub Pages MVP v6</title>
+  <meta name="description" content="Портал бренда Алтея и сотрудников: красивый дашборд, документы, репрайсер, расчёт заказа, контроль задач, новинки и свод руководителя.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="page">
-    <header class="topbar">
-      <div>
-        <span class="eyebrow">Текстильно</span>
-        <h1 id="heroTitle">Контроль задач, план/факт и поставки</h1>
-        <p class="lead">Менеджеры отмечают только статус и комментарий. План, факт и отклонения сайт показывает сам.</p>
-        <div class="panel-actions" style="margin-top: 12px;">
-          <a href="nina.html" class="btn btn-primary">Нина · WB / Ozon кластеры</a>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <div class="logo-badge">AL</div>
+        <div>
+          <div class="brand-title">Altea Portal</div>
+          <div class="brand-sub">GitHub Pages MVP v6 · только Алтея · SKU-first контур</div>
         </div>
       </div>
-      <div class="topbar-side">
-        <label class="field">
-          <span>Рабочая дата</span>
-          <input type="date" id="globalReportDate" />
-        </label>
-        <div class="hero-stats">
-          <div class="hero-metric"><span>Хранение</span><strong id="storageModeBadge">локально</strong></div>
-          <div class="hero-metric"><span>План/факт</span><strong id="planFactBadge">загрузка…</strong></div>
-          <div class="hero-metric"><span>Кластера</span><strong id="clusterBadge">загрузка…</strong></div>
-          <div class="hero-metric"><span>Пакет</span><strong id="packSizeBadge">20</strong></div>
+
+      <nav class="nav">
+        <button class="nav-btn active" data-view="dashboard">
+          <span>Дашборд</span>
+          <small>Общее состояние + лидеры</small>
+        </button>
+        <button class="nav-btn" data-view="documents">
+          <span>Документы</span>
+          <small>Кнопки на рабочие файлы</small>
+        </button>
+        <button class="nav-btn" data-view="repricer">
+          <span>Репрайсер</span>
+          <small>Цена, стратегия, рекомендации</small>
+        </button>
+        <button class="nav-btn" data-view="order">
+          <span>Заказ товара</span>
+          <small>Форма расчёта поставки</small>
+        </button>
+        <button class="nav-btn" data-view="control">
+          <span>Задачи</span>
+          <small>Контроль + чек-лист</small>
+        </button>
+        <button class="nav-btn" data-view="skus">
+          <span>Реестр SKU</span>
+          <small>1 артикул = 1 карточка</small>
+        </button>
+        <button class="nav-btn" data-view="launches">
+          <span>Новинки</span>
+          <small>Pipeline</small>
+        </button>
+        <button class="nav-btn" data-view="meetings">
+          <span>Ритм работы</span>
+          <small>Weekly / Monthly / PMR</small>
+        </button>
+        <button class="nav-btn" data-view="executive">
+          <span>Руководителю</span>
+          <small>Свод задач и алертов</small>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <h4>Что внутри сейчас</h4>
+        <p>Красивый дашборд бренда, лидеры продаж и оборачиваемости, центр документов, витрина репрайсера, форма расчёта заказа, контроль задач, карточка SKU, новинки, свод руководителя и новый командный контур.</p>
+      </div>
+
+      <div class="sidebar-foot">
+        <h4>Важно</h4>
+        <p>GitHub Pages — это статический хостинг. Общие комментарии между сотрудниками на этой версии не синхронизируются без backend.</p>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h1>Портал бренда Алтея</h1>
+          <p>Версия v6: командный режим с общей базой задач через Supabase-ready слой, закреплением owner по SKU, журналом решений и синхронизацией рабочего JSON.</p>
+        </div>
+        <div class="top-actions top-actions-wrap">
+          <div class="sync-status" id="syncStatusBadge">Локальный режим</div>
+          <button class="btn ghost" id="pullRemoteBtn" type="button">Загрузить командные данные</button>
+          <button class="btn ghost" id="pushRemoteBtn" type="button">Отправить в командную базу</button>
+          <button class="btn" id="exportStorageBtn">Экспорт рабочего JSON</button>
+          <label class="btn file-input">Импорт JSON
+            <input type="file" id="importStorageInput" accept="application/json">
+          </label>
         </div>
       </div>
-    </header>
 
-    <div id="banner" class="banner">Загружаю данные…</div>
+      <div class="banner hidden" id="appError"></div>
 
-    <nav class="tabs">
-      <button type="button" class="tab-btn active" data-tab="wb">WB · Анастасия</button>
-      <button type="button" class="tab-btn" data-tab="ozon">Ozon · Ирина Паламарук</button>
-      <button type="button" class="tab-btn" data-tab="supplies">Поставки</button>
-      <button type="button" class="tab-btn" data-tab="leader">Руководитель</button>
-    </nav>
-
-    <main class="tab-wrap">
-      <section class="tab-panel active" id="tab-wb">
-        <div class="panel">
-          <div class="panel-head compact-head">
-            <div>
-              <h2>WB · Анастасия</h2>
-              <p>Только задачи по артикулам и комментарии менеджера.</p>
-            </div>
-            <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="wbSaveBtn">Сохранить</button>
-              <button type="button" class="btn btn-ghost" id="wbExportBtn">Экспорт</button>
-              <button type="button" class="btn btn-primary" id="wbSubmitBtn">Сдать WB</button>
-            </div>
-          </div>
-
-          <div class="info-line">
-            <span class="badge">Менеджер: Анастасия</span>
-            <span class="badge">Площадка: WB</span>
-            <span class="badge" id="wbResponsibilityBadge">Роль: менеджер WB</span>
-            <span class="badge" id="wbSourceBadge">Источник: загрузка…</span>
-          </div>
-
-          <div class="cards cards-8 compact-cards">
-            <article class="card metric"><span>Пакет</span><strong id="wbPackCard">—</strong></article>
-            <article class="card metric"><span>Артикулы</span><strong id="wbCountCard">—</strong></article>
-            <article class="card metric"><span>Критично</span><strong id="wbCriticalCard">—</strong></article>
-            <article class="card metric"><span>План / день</span><strong id="wbPlanOrdersCard">—</strong></article>
-            <article class="card metric"><span>Факт / день</span><strong id="wbFactOrdersCard">—</strong></article>
-            <article class="card metric delta-card"><span>Отклонение</span><strong id="wbDeltaOrdersCard">—</strong></article>
-            <article class="card metric"><span>План маржи / день</span><strong id="wbPlanMarginCard">—</strong></article>
-            <article class="card metric"><span>К допоставке</span><strong id="wbSupplyCard">—</strong></article>
-          </div>
-
-          <div class="insights-grid">
-            <article class="card chart-card">
-              <div class="section-head">
-                <div>
-                  <h3>План / факт по дням</h3>
-                  <p>Дневная линия по пакету на выбранную дату.</p>
-                </div>
-                <div class="chart-controls">
-                  <div class="segmented">
-                    <button type="button" class="seg-btn active" data-tab-key="wb" data-history-metric-value="orders">Заказы</button>
-                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-metric-value="revenue">Выручка</button>
-                  </div>
-                  <div class="segmented">
-                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-range-value="7">7 дн</button>
-                    <button type="button" class="seg-btn active" data-tab-key="wb" data-history-range-value="14">14 дн</button>
-                    <button type="button" class="seg-btn" data-tab-key="wb" data-history-range-value="30">30 дн</button>
-                  </div>
-                </div>
-              </div>
-              <div id="wbTrendChart" class="trend-chart"></div>
-              <p class="chart-caption" id="wbTrendCaption">—</p>
-            </article>
-
-            <article class="card deviation-card">
-              <div class="section-head">
-                <div>
-                  <h3>Топ-5 отклонений</h3>
-                  <p>Отдельно от дневного пакета.</p>
-                </div>
-              </div>
-              <div id="wbDeviationList" class="deviation-list"></div>
-            </article>
-          </div>
-
-          <div class="toolbar">
-            <label class="field compact">
-              <span>Пакет</span>
-              <select id="wbPackFilter"></select>
-            </label>
-            <label class="field compact">
-              <span>Приоритет</span>
-              <select id="wbPriorityFilter">
-                <option value="all">Все</option>
-                <option value="critical">Критично</option>
-                <option value="high">Высокий</option>
-                <option value="medium">Средний</option>
-                <option value="low">Низкий</option>
-              </select>
-            </label>
-            <label class="field compact">
-              <span>Статус</span>
-              <select id="wbStatusFilter">
-                <option value="all">Все</option>
-                <option value="not-started">Не начато</option>
-                <option value="in-progress">В работе</option>
-                <option value="done">Сделано</option>
-                <option value="to-supply">Передано в поставки</option>
-                <option value="blocked">Блокер</option>
-                <option value="need-help">Нужна помощь</option>
-              </select>
-            </label>
-            <label class="field compact search-field">
-              <span>Поиск</span>
-              <input type="search" id="wbSearchFilter" placeholder="Артикул или товар" />
-            </label>
-          </div>
-
-          <p class="subnote" id="wbPlanNote">Проверяю плановые метрики…</p>
-
-          <div class="table-wrap modern-table-wrap">
-            <table class="data-table modern-table">
-              <thead>
-                <tr>
-                  <th>Приоритет</th>
-                  <th>Артикул</th>
-                  <th>Задача</th>
-                  <th>План / факт</th>
-                  <th>Статус</th>
-                  <th>Комментарий</th>
-                </tr>
-              </thead>
-              <tbody id="wbArticlesBody"></tbody>
-            </table>
-          </div>
-
-          <div class="notes-grid">
-            <label class="field">
-              <span>Комментарий по дню</span>
-              <textarea id="wbDayComment" rows="3" placeholder="Итог по пакету WB"></textarea>
-            </label>
-            <label class="field">
-              <span>Нужна помощь</span>
-              <textarea id="wbNeedHelp" rows="3" placeholder="Что надо подключить с твоей стороны"></textarea>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab-panel" id="tab-ozon">
-        <div class="panel">
-          <div class="panel-head compact-head">
-            <div>
-              <h2>Ozon · Ирина Паламарук</h2>
-              <p>План/факт считаются автоматически. Менеджер отмечает только ход работы.</p>
-            </div>
-            <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="ozonSaveBtn">Сохранить</button>
-              <button type="button" class="btn btn-ghost" id="ozonExportBtn">Экспорт</button>
-              <button type="button" class="btn btn-primary" id="ozonSubmitBtn">Сдать Ozon</button>
-            </div>
-          </div>
-
-          <div class="info-line">
-            <span class="badge">Менеджер: Ирина Паламарук</span>
-            <span class="badge">Площадка: Ozon</span>
-            <span class="badge" id="ozonResponsibilityBadge">Роль: менеджер Ozon</span>
-            <span class="badge" id="ozonSourceBadge">Источник: загрузка…</span>
-          </div>
-
-          <div class="cards cards-8 compact-cards">
-            <article class="card metric"><span>Пакет</span><strong id="ozonPackCard">—</strong></article>
-            <article class="card metric"><span>Артикулы</span><strong id="ozonCountCard">—</strong></article>
-            <article class="card metric"><span>Критично</span><strong id="ozonCriticalCard">—</strong></article>
-            <article class="card metric"><span>План / день</span><strong id="ozonPlanOrdersCard">—</strong></article>
-            <article class="card metric"><span>Факт / день</span><strong id="ozonFactOrdersCard">—</strong></article>
-            <article class="card metric delta-card"><span>Отклонение</span><strong id="ozonDeltaOrdersCard">—</strong></article>
-            <article class="card metric"><span>План маржи / день</span><strong id="ozonPlanMarginCard">—</strong></article>
-            <article class="card metric"><span>К допоставке</span><strong id="ozonSupplyCard">—</strong></article>
-          </div>
-
-          <div class="insights-grid">
-            <article class="card chart-card">
-              <div class="section-head">
-                <div>
-                  <h3>План / факт по дням</h3>
-                  <p>Дневная линия по пакету на выбранную дату.</p>
-                </div>
-                <div class="chart-controls">
-                  <div class="segmented">
-                    <button type="button" class="seg-btn active" data-tab-key="ozon" data-history-metric-value="orders">Заказы</button>
-                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-metric-value="revenue">Выручка</button>
-                  </div>
-                  <div class="segmented">
-                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-range-value="7">7 дн</button>
-                    <button type="button" class="seg-btn active" data-tab-key="ozon" data-history-range-value="14">14 дн</button>
-                    <button type="button" class="seg-btn" data-tab-key="ozon" data-history-range-value="30">30 дн</button>
-                  </div>
-                </div>
-              </div>
-              <div id="ozonTrendChart" class="trend-chart"></div>
-              <p class="chart-caption" id="ozonTrendCaption">—</p>
-            </article>
-
-            <article class="card deviation-card">
-              <div class="section-head">
-                <div>
-                  <h3>Топ-5 отклонений</h3>
-                  <p>Отдельно от дневного пакета.</p>
-                </div>
-              </div>
-              <div id="ozonDeviationList" class="deviation-list"></div>
-            </article>
-          </div>
-
-          <div class="toolbar">
-            <label class="field compact">
-              <span>Пакет</span>
-              <select id="ozonPackFilter"></select>
-            </label>
-            <label class="field compact">
-              <span>Приоритет</span>
-              <select id="ozonPriorityFilter">
-                <option value="all">Все</option>
-                <option value="critical">Критично</option>
-                <option value="high">Высокий</option>
-                <option value="medium">Средний</option>
-                <option value="low">Низкий</option>
-              </select>
-            </label>
-            <label class="field compact">
-              <span>Статус</span>
-              <select id="ozonStatusFilter">
-                <option value="all">Все</option>
-                <option value="not-started">Не начато</option>
-                <option value="in-progress">В работе</option>
-                <option value="done">Сделано</option>
-                <option value="to-supply">Передано в поставки</option>
-                <option value="blocked">Блокер</option>
-                <option value="need-help">Нужна помощь</option>
-              </select>
-            </label>
-            <label class="field compact search-field">
-              <span>Поиск</span>
-              <input type="search" id="ozonSearchFilter" placeholder="Артикул или товар" />
-            </label>
-          </div>
-
-          <p class="subnote" id="ozonPlanNote">Проверяю плановые метрики…</p>
-
-          <div class="table-wrap modern-table-wrap">
-            <table class="data-table modern-table">
-              <thead>
-                <tr>
-                  <th>Приоритет</th>
-                  <th>Артикул</th>
-                  <th>Задача</th>
-                  <th>План / факт</th>
-                  <th>Статус</th>
-                  <th>Комментарий</th>
-                </tr>
-              </thead>
-              <tbody id="ozonArticlesBody"></tbody>
-            </table>
-          </div>
-
-          <div class="notes-grid">
-            <label class="field">
-              <span>Комментарий по дню</span>
-              <textarea id="ozonDayComment" rows="3" placeholder="Итог по пакету Ozon"></textarea>
-            </label>
-            <label class="field">
-              <span>Нужна помощь</span>
-              <textarea id="ozonNeedHelp" rows="3" placeholder="Что надо подключить с твоей стороны"></textarea>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab-panel" id="tab-supplies">
-        <div class="panel">
-          <div class="panel-head compact-head">
-            <div>
-              <h2>Поставки и кластера</h2>
-              <p>Координатор ведёт остатки, оборачиваемость и план отгрузки.</p>
-            </div>
-            <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="suppliesSaveBtn">Сохранить</button>
-              <button type="button" class="btn btn-ghost" id="suppliesExportBtn">Экспорт</button>
-              <button type="button" class="btn btn-primary" id="suppliesSubmitBtn">Сдать поставки</button>
-            </div>
-          </div>
-
-          <div class="toolbar">
-            <label class="field compact">
-              <span>Площадка</span>
-              <select id="suppliesChannel">
-                <option value="WB">WB</option>
-                <option value="Ozon">Ozon</option>
-              </select>
-            </label>
-            <label class="field compact large">
-              <span>Артикул</span>
-              <select id="suppliesArticleSelect"></select>
-            </label>
-            <label class="field compact">
-              <span>Покрытие, дней</span>
-              <input type="number" id="suppliesTargetDays" min="7" max="60" step="1" value="21" />
-            </label>
-            <label class="field compact">
-              <span>Координатор</span>
-              <input type="text" id="suppliesCoordinator" placeholder="Имя координатора" />
-            </label>
-          </div>
-
-          <div class="supplies-grid">
-            <div class="supplies-primary">
-              <div class="cards cards-6 compact-cards">
-                <article class="card metric"><span>Товар</span><strong id="suppliesTitleCard">—</strong></article>
-                <article class="card metric"><span>Осн. склад</span><strong id="suppliesMainStockCard">—</strong></article>
-                <article class="card metric"><span>На МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
-                <article class="card metric"><span>Спрос / день</span><strong id="suppliesDemandCard">—</strong></article>
-                <article class="card metric"><span>Рекоменд. отгрузка</span><strong id="suppliesRecommendedCard">—</strong></article>
-                <article class="card metric"><span>Кластеров</span><strong id="suppliesRowsCard">—</strong></article>
-              </div>
-
-              <div class="cards cards-2 supply-focus-cards">
-                <article class="card supply-focus-card">
-                  <span>Почему артикул в фокусе</span>
-                  <strong id="suppliesReasonCard">—</strong>
-                </article>
-                <article class="card supply-focus-card">
-                  <span>Что делаем по артикулу</span>
-                  <strong id="suppliesActionCard">—</strong>
-                </article>
-              </div>
-
-              <p class="subnote" id="suppliesHint">Выбери площадку и артикул.</p>
-
-              <div class="table-wrap modern-table-wrap">
-                <table class="data-table modern-table">
-                  <thead>
-                    <tr>
-                      <th>Кластер / склад</th>
-                      <th>Спрос 7д</th>
-                      <th>Спрос / день</th>
-                      <th>Остаток</th>
-                      <th>Оборачиваемость</th>
-                      <th>В поставке</th>
-                      <th>В производстве</th>
-                      <th>В закупке</th>
-                      <th>Нужно</th>
-                      <th>План отгрузки</th>
-                      <th>ETA</th>
-                      <th>Статус</th>
-                      <th>Комментарий</th>
-                    </tr>
-                  </thead>
-                  <tbody id="suppliesRowsBody"></tbody>
-                </table>
-              </div>
-            </div>
-
-            <aside class="supplies-side">
-              <article class="card supplies-summary-card">
-                <div class="section-head compact-head-inline">
-                  <div>
-                    <h3>Сводка по площадке</h3>
-                    <p id="suppliesSummaryMeta">—</p>
-                  </div>
-                  <a href="nina.html" class="btn btn-ghost btn-sm">Матрица Нины</a>
-                </div>
-                <div class="cards cards-2 compact-cards supply-summary-cards">
-                  <article class="card metric"><span>Артикулов</span><strong id="suppliesSummaryArticlesCard">—</strong></article>
-                  <article class="card metric"><span>Кластерных строк</span><strong id="suppliesSummaryRowsCard">—</strong></article>
-                  <article class="card metric"><span>Спрос / день</span><strong id="suppliesSummaryDemandCard">—</strong></article>
-                  <article class="card metric"><span>Запас на МП</span><strong id="suppliesSummaryStockCard">—</strong></article>
-                  <article class="card metric"><span>Осн. склад</span><strong id="suppliesSummaryMainCard">—</strong></article>
-                  <article class="card metric"><span>Нужно к отгрузке</span><strong id="suppliesSummaryNeedCard">—</strong></article>
-                  <article class="card metric"><span>Критично / high</span><strong id="suppliesSummaryCriticalCard">—</strong></article>
-                  <article class="card metric"><span>Есть блокеры</span><strong id="suppliesSummaryBlockedCard">—</strong></article>
-                </div>
-              </article>
-
-              <article class="card supplies-top-card">
-                <div class="section-head">
-                  <div>
-                    <h3>Топ дефицитов</h3>
-                    <p>Клик по артикулу — форма справа переключится на него.</p>
-                  </div>
-                </div>
-                <div id="suppliesTopDeficits" class="deviation-list"></div>
-              </article>
-
-              <article class="card supplies-top-card">
-                <div class="section-head">
-                  <div>
-                    <h3>Требует решения сегодня</h3>
-                    <p>Критично / высокий приоритет и низкое покрытие.</p>
-                  </div>
-                </div>
-                <div id="suppliesAttentionList" class="attention-list"></div>
-              </article>
-            </aside>
-          </div>
-        </div>
-      </section>
-
-      <section class="tab-panel" id="tab-leader">
-        <div class="panel">
-          <div class="panel-head compact-head">
-            <div>
-              <h2>Руководитель</h2>
-              <p>Журнал сдачи пакетов и поставок.</p>
-            </div>
-            <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="leaderRefreshBtn">Обновить</button>
-              <button type="button" class="btn btn-ghost" id="leaderExportAllBtn">Экспорт всех данных</button>
-              <button type="button" class="btn btn-ghost hidden" id="openSheetBtn">Открыть Google Sheet</button>
-              <label class="btn btn-secondary btn-file">
-                Импорт JSON
-                <input type="file" id="leaderImportInput" accept=".json,application/json" />
-              </label>
-            </div>
-          </div>
-
-          <div class="toolbar">
-            <label class="field compact">
-              <span>Дата</span>
-              <input type="date" id="leaderDateFilter" />
-            </label>
-            <label class="field compact">
-              <span>Тип</span>
-              <select id="leaderTypeFilter">
-                <option value="all">Все</option>
-                <option value="manager">Пакеты менеджеров</option>
-                <option value="cluster">Формы поставок</option>
-              </select>
-            </label>
-            <label class="field compact">
-              <span>Кто</span>
-              <select id="leaderManagerFilter"><option value="all">Все</option></select>
-            </label>
-            <label class="field compact">
-              <span>Источник</span>
-              <select id="leaderSourceFilter">
-                <option value="all">Все</option>
-                <option value="local">Локально</option>
-                <option value="remote">Apps Script</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="cards cards-4 compact-cards">
-            <article class="card metric"><span>Записей</span><strong id="leaderTotalCard">—</strong></article>
-            <article class="card metric"><span>Пакеты</span><strong id="leaderManagerCard">—</strong></article>
-            <article class="card metric"><span>Поставки</span><strong id="leaderClusterCard">—</strong></article>
-            <article class="card metric"><span>Есть блокеры</span><strong id="leaderIssuesCard">—</strong></article>
-          </div>
-
-          <div class="two-col">
-            <div class="table-wrap modern-table-wrap">
-              <table class="data-table leader-table modern-table">
-                <thead>
-                  <tr>
-                    <th>Когда</th>
-                    <th>Кто</th>
-                    <th>Тип</th>
-                    <th>Площадка</th>
-                    <th>Сводка</th>
-                    <th>Источник</th>
-                  </tr>
-                </thead>
-                <tbody id="leaderFeedBody"></tbody>
-              </table>
-            </div>
-
-            <aside class="details-panel" id="leaderDetails">
-              <h3>Детали записи</h3>
-              <p class="muted">Выбери строку слева.</p>
-            </aside>
-          </div>
-        </div>
-      </section>
+      <section class="view active" id="view-dashboard"></section>
+      <section class="view" id="view-documents"></section>
+      <section class="view" id="view-repricer"></section>
+      <section class="view" id="view-order"></section>
+      <section class="view" id="view-control"></section>
+      <section class="view" id="view-skus"></section>
+      <section class="view" id="view-launches"></section>
+      <section class="view" id="view-meetings"></section>
+      <section class="view" id="view-executive"></section>
     </main>
-
-    <div id="toast" class="toast" aria-live="polite"></div>
   </div>
 
+  <div class="modal" id="skuModal">
+    <div class="modal-card" id="skuModalBody"></div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>
