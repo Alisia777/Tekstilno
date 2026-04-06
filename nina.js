@@ -5,7 +5,7 @@ const ninaState = {
   platform: "WB",
   page: "matrix",
   targetDays: { WB: 21, Ozon: 21 },
-  filters: { search: "", showMode: "all", limit: 50, sort: "need" },
+  filters: { search: "", showMode: "all", limit: 9999, sort: "need" },
   manualInputs: loadStorage("tekstilno-nina-manual-inputs-v1", {}),
   orderRequests: loadStorage("tekstilno-nina-order-requests-v1", []),
   selectedArticle: null
@@ -173,23 +173,29 @@ function computeRow(row) {
     const entry = getManualEntry(ninaState.platform, row.sellerArticle, metric.cluster) || {};
     const targetDays = clampNumber(Number(entry.targetDays || targetDefault), 7, 60, targetDefault);
     const override = entry.seasonalityOverride === "" || entry.seasonalityOverride == null ? null : Number(entry.seasonalityOverride);
+    const actualDaily7 = roundNum(Number(metric.orders7d || 0) / 7, 2);
+    const seasonalPlanDay = Number(metric.seasonalPlanDay || 0) || 0;
     const adjustedBase = override && override > 0
-      ? Math.max(Number(metric.avgDaily || 0), Number(metric.seasonalPlanDay || 0) * override)
+      ? Math.max(actualDaily7, seasonalPlanDay * override)
       : Number(metric.adjustedDaily || 0);
     const inTransit = Number(entry.inTransit || 0) || 0;
     const production = Number(entry.production || 0) || 0;
     const procurement = Number(entry.procurement || 0) || 0;
     const available = Number(metric.stock || 0) + inTransit + production + procurement;
-    const turnover = adjustedBase > 0 ? roundNum(available / adjustedBase, 1) : null;
+    const coverage7 = actualDaily7 > 0 ? roundNum(available / actualDaily7, 1) : null;
+    const coverage14 = adjustedBase > 0 ? roundNum(available / adjustedBase, 1) : null;
     const need = Math.max(0, Math.ceil(adjustedBase * targetDays - available));
     return {
       ...metric,
+      actualDaily7,
       adjustedDailyCalc: roundNum(adjustedBase, 2),
       inTransit,
       production,
       procurement,
       available: roundNum(available, 2),
-      turnoverDaysCalc: turnover,
+      coverage7DaysCalc: coverage7,
+      coverage14DaysCalc: coverage14,
+      turnoverDaysCalc: coverage14,
       recommendedQtyCalc: need,
       targetDays,
       seasonalityOverride: override,
@@ -197,6 +203,7 @@ function computeRow(row) {
     };
   });
 
+  const totalActualDaily7 = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.actualDaily7 || 0), 0);
   const totalAdjusted = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.adjustedDailyCalc || 0), 0);
   const totalStock = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.stock || 0), 0);
   const totalTransit = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.inTransit || 0), 0);
@@ -204,11 +211,13 @@ function computeRow(row) {
   const totalProcurement = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.procurement || 0), 0);
   const totalAvailable = totalStock + totalTransit + totalProduction + totalProcurement;
   const totalNeed = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.recommendedQtyCalc || 0), 0);
-  const totalTurnover = totalAdjusted > 0 ? roundNum(totalAvailable / totalAdjusted, 1) : null;
+  const totalCoverage7 = totalActualDaily7 > 0 ? roundNum(totalAvailable / totalActualDaily7, 1) : null;
+  const totalCoverage14 = totalAdjusted > 0 ? roundNum(totalAvailable / totalAdjusted, 1) : null;
 
   return {
     ...row,
     clusterMetricsCalc,
+    totalActualDaily7Calc: roundNum(totalActualDaily7, 2),
     totalAdjustedCalc: roundNum(totalAdjusted, 2),
     totalStockCalc: roundNum(totalStock, 2),
     totalTransitCalc: roundNum(totalTransit, 2),
@@ -216,13 +225,45 @@ function computeRow(row) {
     totalProcurementCalc: roundNum(totalProcurement, 2),
     totalAvailableCalc: roundNum(totalAvailable, 2),
     totalNeedCalc: totalNeed,
-    totalTurnoverCalc: totalTurnover
+    totalCoverage7Calc: totalCoverage7,
+    totalCoverage14Calc: totalCoverage14,
+    totalTurnoverCalc: totalCoverage14
   };
 }
 
 function getAllComputedRows() {
   return getPlatformData().rows.map(computeRow);
 }
+function getClusterWarehouseMap() {
+  const map = new Map();
+  getPlatformData().rows.forEach((row) => {
+    (row.clusterMetrics || []).forEach((metric) => {
+      const cluster = metric.cluster;
+      if (!cluster) return;
+      if (!map.has(cluster)) map.set(cluster, new Set());
+      const warehouse = formatWarehouseLabel(metric.shippingWarehouse || metric.shippingCluster || "");
+      if (warehouse) map.get(cluster).add(warehouse);
+    });
+  });
+  return map;
+}
+
+function buildClusterHead(cluster, warehouseMap) {
+  const warehouses = Array.from(warehouseMap.get(cluster) || []);
+  const shown = warehouses.slice(0, 4);
+  const more = warehouses.length - shown.length;
+  return `
+    <div class="cluster-head">
+      <span class="cluster-title">${escapeHtml(cluster)}</span>
+      <div class="warehouse-list">
+        ${shown.length
+          ? shown.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")
+          : `<span class="warehouse-note">агрегировано по кластеру</span>`}
+        ${more > 0 ? `<span class="warehouse-note">+${more}</span>` : ""}
+      </div>
+    </div>`;
+}
+
 
 function getFilteredRows() {
   const rows = getAllComputedRows();
@@ -266,10 +307,10 @@ function renderMatrix() {
   const platformData = getPlatformData();
   const clusters = platformData.clusters;
   const rows = getFilteredRows();
-  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. ИТОГО — сумма по кластерам; “План/д” уже учитывает сезонность.`;
+  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. Покр.7 = фактический темп 7 дней, Покр.14 = сглаженный темп с учетом сезонного плана.`;
   ninaEls.matrixHead.innerHTML = buildMatrixHead(clusters);
   if (!rows.length) {
-    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${16 + clusters.length * 8}">По текущим фильтрам ничего не найдено.</td></tr>`;
+    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${13 + clusters.length * 9}">По текущим фильтрам ничего не найдено.</td></tr>`;
     return;
   }
   ninaEls.matrixBody.innerHTML = rows.map((row) => buildMatrixRow(row, clusters)).join("");
@@ -296,23 +337,17 @@ function renderMatrix() {
 }
 
 function buildMatrixHead(clusters) {
+  const warehouseMap = getClusterWarehouseMap();
+  const labels = ["7д", "План/д", "Ост", "В пути", "Пр-во", "Закуп", "Покр.7", "Покр.14", "Нужно"];
   const top = [
     `<th class="sticky-col col-article" rowspan="2">Артикул / размер</th>`,
     `<th class="sticky-col-2 col-name" rowspan="2">Товар</th>`,
     `<th class="sticky-col-3 col-priority" rowspan="2">Приоритет</th>`,
     `<th class="sticky-col-4 col-main" rowspan="2">Осн. склад</th>`,
-    `<th colspan="8">ИТОГО</th>`
+    `<th colspan="9">ИТОГО</th>`
   ];
-  clusters.forEach((cluster) => top.push(`<th colspan="8">${escapeHtml(cluster)}</th>`));
-
-  const labels = ["7д", "План/д", "Ост", "В пути", "Пр-во", "Закуп", "Об.", "Нужно"];
-  const fixed = [
-    `<th class="sticky-col col-article"></th>`,
-    `<th class="sticky-col-2 col-name"></th>`,
-    `<th class="sticky-col-3 col-priority"></th>`,
-    `<th class="sticky-col-4 col-main"></th>`
-  ];
-  return `<tr>${top.join("")}</tr><tr>${fixed.join("")}${labels.map((l) => `<th class="metric-col">${l}</th>`).join("")}${clusters.map(() => labels.map((l) => `<th class="metric-col">${l}</th>`).join("")).join("")}</tr>`;
+  clusters.forEach((cluster) => top.push(`<th colspan="9">${buildClusterHead(cluster, warehouseMap)}</th>`));
+  return `<tr>${top.join("")}</tr><tr>${labels.map((l) => `<th class="metric-col">${l}</th>`).join("")}${clusters.map(() => labels.map((l) => `<th class="metric-col">${l}</th>`).join("")).join("")}</tr>`;
 }
 
 function buildMatrixRow(row, clusters) {
@@ -326,20 +361,23 @@ function buildMatrixRow(row, clusters) {
     row.totalTransitCalc || 0,
     row.totalProductionCalc || 0,
     row.totalProcurementCalc || 0,
-    row.totalTurnoverCalc,
+    row.totalCoverage7Calc,
+    row.totalCoverage14Calc,
     row.totalNeedCalc || 0
   ].map((value, idx) => {
-    if (idx === 7) {
+    if (idx === 8) {
       return `<td class="metric-col"><span class="need-pill ${totalNeedClass}">${numberFormat(value)}</span></td>`;
     }
-    return `<td class="metric-col">${numberOrDash(value)}</td>`;
+    const rendered = idx === 1 ? numberFormat(value, 1) : idx >= 6 ? numberOrDash(value) : numberFormat(value || 0);
+    return `<td class="metric-col">${rendered}</td>`;
   }).join("");
 
   const clusterCells = clusters.map((cluster) => {
     const metric = byCluster.get(cluster) || {
-      orders7d: 0, adjustedDailyCalc: 0, stock: 0, inTransit: 0, production: 0, procurement: 0, turnoverDaysCalc: null, recommendedQtyCalc: 0, comment: ""
+      orders7d: 0, adjustedDailyCalc: 0, stock: 0, inTransit: 0, production: 0, procurement: 0, coverage7DaysCalc: null, coverage14DaysCalc: null, recommendedQtyCalc: 0, comment: "", shippingWarehouse: ""
     };
     const needClass = metric.recommendedQtyCalc > 100 ? "need-high" : metric.recommendedQtyCalc > 0 ? "need-mid" : "need-zero";
+    const cellTitle = [metric.shippingWarehouse ? `Склад: ${metric.shippingWarehouse}` : "", metric.comment || ""].filter(Boolean).join(" · ");
     const values = [
       metric.orders7d || 0,
       metric.adjustedDailyCalc || 0,
@@ -347,14 +385,16 @@ function buildMatrixRow(row, clusters) {
       metric.inTransit || 0,
       metric.production || 0,
       metric.procurement || 0,
-      metric.turnoverDaysCalc,
+      metric.coverage7DaysCalc,
+      metric.coverage14DaysCalc,
       metric.recommendedQtyCalc || 0
     ];
     return values.map((value, idx) => {
-      if (idx === 7) {
-        return `<td class="metric-col" title="${escapeHtml(metric.comment || "")}"><button type="button" class="need-pill ${needClass}" data-fill-order data-article="${escapeHtmlAttr(row.sellerArticle)}" data-cluster="${escapeHtmlAttr(cluster)}">${numberFormat(value)}</button></td>`;
+      if (idx === 8) {
+        return `<td class="metric-col" title="${escapeHtml(cellTitle)}"><button type="button" class="need-pill ${needClass}" data-fill-order data-article="${escapeHtmlAttr(row.sellerArticle)}" data-cluster="${escapeHtmlAttr(cluster)}">${numberFormat(value)}</button></td>`;
       }
-      return `<td class="metric-col" title="${escapeHtml(metric.comment || "")}">${numberOrDash(value)}</td>`;
+      const rendered = idx === 1 ? numberFormat(value, 1) : idx >= 6 ? numberOrDash(value) : numberFormat(value || 0);
+      return `<td class="metric-col" title="${escapeHtml(cellTitle)}">${rendered}</td>`;
     }).join("");
   }).join("");
 
@@ -376,7 +416,7 @@ function renderSelectedCard() {
     : getAllComputedRows()[0];
 
   if (!article) {
-    ninaEls.selectedSubtitle.textContent = "Выбери артикул из таблицы слева.";
+    ninaEls.selectedSubtitle.textContent = "Выбери артикул из таблицы ниже.";
     ninaEls.selectedArticleCard.className = "selected-card empty";
     ninaEls.selectedArticleCard.textContent = "Пока ничего не выбрано.";
     return;
@@ -401,8 +441,10 @@ function renderSelectedCard() {
     </div>
     <div class="article-summary">
       <div class="summary-block"><span>План / день</span><strong>${numberFormat(article.currentPlanDay || 0, 1)}</strong></div>
-      <div class="summary-block"><span>Спрос / день</span><strong>${numberFormat(article.totalAdjustedCalc || 0, 1)}</strong></div>
+      <div class="summary-block"><span>Покр.7</span><strong>${numberOrDash(article.totalCoverage7Calc)}</strong></div>
+      <div class="summary-block"><span>Покр.14</span><strong>${numberOrDash(article.totalCoverage14Calc)}</strong></div>
       <div class="summary-block"><span>Запас в кластерах</span><strong>${numberFormat(article.totalStockCalc || 0)}</strong></div>
+      <div class="summary-block"><span>В пути / пр-во / закуп</span><strong>${numberFormat(article.totalTransitCalc || 0)} / ${numberFormat(article.totalProductionCalc || 0)} / ${numberFormat(article.totalProcurementCalc || 0)}</strong></div>
       <div class="summary-block"><span>Реком. отгрузка</span><strong>${numberFormat(article.totalNeedCalc || 0)}</strong></div>
     </div>
     <div class="summary-block">
@@ -417,7 +459,7 @@ function renderSelectedCard() {
           <div class="cluster-mini-item">
             <div>
               <strong>${escapeHtml(metric.cluster)}</strong>
-              <div class="muted">Ост: ${numberFormat(metric.stock || 0)} · Об.: ${numberOrDash(metric.turnoverDaysCalc)}</div>
+              <div class="muted">Покр.7: ${numberOrDash(metric.coverage7DaysCalc)} · Покр.14: ${numberOrDash(metric.coverage14DaysCalc)}</div>
             </div>
             <div><span class="need-pill ${(metric.recommendedQtyCalc || 0) > 100 ? "need-high" : (metric.recommendedQtyCalc || 0) > 0 ? "need-mid" : "need-zero"}">${numberFormat(metric.recommendedQtyCalc || 0)}</span></div>
           </div>
@@ -517,7 +559,8 @@ function renderStockTable() {
         inTransit: metric.inTransit,
         production: metric.production,
         procurement: metric.procurement,
-        turnover: metric.turnoverDaysCalc,
+        coverage7: metric.coverage7DaysCalc,
+        coverage14: metric.coverage14DaysCalc,
         need: metric.recommendedQtyCalc,
         mainWarehouseStock: row.mainWarehouseStock
       });
@@ -529,16 +572,17 @@ function renderStockTable() {
       <td>${escapeHtml(item.sellerArticle)}</td>
       <td>${escapeHtml(item.name || "")}</td>
       <td>${escapeHtml(item.cluster)}</td>
-      <td class="num">${numberFormat(item.orders7d || 0, 1)}</td>
+      <td class="num">${numberFormat(item.orders7d || 0)}</td>
       <td class="num">${numberFormat(item.adjustedDailyCalc || 0, 1)}</td>
       <td class="num">${numberFormat(item.stock || 0)}</td>
       <td class="num">${numberFormat(item.inTransit || 0)}</td>
       <td class="num">${numberFormat(item.production || 0)}</td>
       <td class="num">${numberFormat(item.procurement || 0)}</td>
-      <td class="num">${numberOrDash(item.turnover)}</td>
+      <td class="num">${numberOrDash(item.coverage7)}</td>
+      <td class="num">${numberOrDash(item.coverage14)}</td>
       <td class="num">${numberFormat(item.need || 0)}</td>
       <td class="num">${numberFormat(item.mainWarehouseStock || 0)}</td>
-    </tr>`).join("") : `<tr><td colspan="12">Нет данных.</td></tr>`;
+    </tr>`).join("") : `<tr><td colspan="13">Нет данных.</td></tr>`;
 }
 
 function populateOrderClusters(selectedValue) {
@@ -689,15 +733,15 @@ function exportStockCsv() {
   const rows = [];
   getAllComputedRows().forEach((row) => {
     row.clusterMetricsCalc.forEach((metric) => {
-      rows.push([ninaState.platform, row.sellerArticle, row.name || "", metric.cluster, metric.orders7d || 0, metric.adjustedDailyCalc || 0, metric.stock || 0, metric.inTransit || 0, metric.production || 0, metric.procurement || 0, metric.turnoverDaysCalc || "", metric.recommendedQtyCalc || 0, row.mainWarehouseStock || 0]);
+      rows.push([ninaState.platform, row.sellerArticle, row.name || "", metric.cluster, metric.orders7d || 0, metric.adjustedDailyCalc || 0, metric.stock || 0, metric.inTransit || 0, metric.production || 0, metric.procurement || 0, metric.coverage7DaysCalc || "", metric.coverage14DaysCalc || "", metric.recommendedQtyCalc || 0, row.mainWarehouseStock || 0]);
     });
   });
-  downloadBlob(toCsv([["Платформа","Артикул","Товар","Кластер","7д","План/д","Запас","В пути","Производство","Закупка","Оборачиваемость","Нужно","Осн. склад"], ...rows]), `${slugify(ninaState.platform)}-cluster-stock.csv`, "text/csv;charset=utf-8");
+  downloadBlob(toCsv([["Платформа","Артикул","Товар","Кластер","Заказы 7д","План/д","Запас","В пути","Производство","Закупка","Покр.7","Покр.14","Нужно","Осн. склад"], ...rows]), `${slugify(ninaState.platform)}-cluster-stock.csv`, "text/csv;charset=utf-8");
 }
 
 function exportOrdersCsv() {
   const rows = ninaState.orderRequests.filter((item) => item.platform === ninaState.platform).map((item) => [formatDateTime(item.createdAt), item.platform, item.sellerArticle, item.cluster, item.recommendedQty || 0, item.qty || 0, sourceLabel(item.source), item.eta || "", item.comment || ""]);
-  downloadBlob(toCsv([["Дата","Платформа","Артикул","Кластер","Реком.","Заказать","Источник","ETA","Комментарий"], ...rows]), `${slugify(ninaState.platform)}-orders.csv`, "text/csv;charset=utf-8");
+  downloadBlob(toCsv([["Дата","Платформа","Артикул","Кластер","Реком.","Заказать","Источник","Дата прихода","Комментарий"], ...rows]), `${slugify(ninaState.platform)}-orders.csv`, "text/csv;charset=utf-8");
 }
 
 function exportInputsCsv() {
@@ -712,6 +756,12 @@ function exportInputsCsv() {
 
 function toCsv(rows) {
   return rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
+}
+
+function formatWarehouseLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.replace(/_/g, " ");
 }
 
 function sourceLabel(value) {
@@ -733,6 +783,11 @@ function numberFormat(value, digits = 0) {
 function numberOrDash(value) {
   if (value == null || value === "") return "—";
   return numberFormat(value, 1);
+}
+
+function countOrDash(value) {
+  if (value == null || value === "") return "—";
+  return numberFormat(value);
 }
 
 function roundNum(value, digits = 2) {

@@ -1,13 +1,12 @@
 window.APP_CONFIG = {
-  brand: 'Алтея',
-  teamMode: 'local',
-  teamMember: {
-    name: '',
-    role: 'Команда'
-  },
-  supabase: {
-    url: '',
-    anonKey: '',
-    auth: 'anonymous'
-  }
+  organizationName: "Текстильно",
+  siteVersion: "v13.0",
+  appsScriptUrl: "",
+  googleSheetUrl: "",
+  enableRemoteDashboard: true,
+  packSize: 20,
+  maxLocalSubmissions: 500,
+  planDataUrl: "data/article-plan.json",
+  clusterDataUrl: "data/cluster-reference.json",
+  historyDataUrl: "data/history-data.json"
 };

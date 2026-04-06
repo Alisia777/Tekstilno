@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Текстильно — Нина · кластеры WB / Ozon</title>
-  <meta name="description" content="Кластеры WB и Ozon для Нины: матрица по артикулам, запасам, производству, закупке, оборачиваемости и заказу товара." />
+  <meta name="description" content="Кластеры WB и Ozon для Нины: полноэкранная матрица по артикулам, запасам, производству, закупке, оборачиваемости и заказу товара." />
   <link rel="stylesheet" href="nina.css" />
   <script src="config.js"></script>
   <script defer src="nina.js"></script>
@@ -14,8 +14,8 @@
     <header class="hero">
       <div class="hero-copy">
         <span class="eyebrow">Текстильно · Нина</span>
-        <h1>Кластеры WB / Ozon и заказ товара</h1>
-        <p>Слева — артикула по размерам, сверху — кластеры, внутри — заказы, сезонный план/день, запас, производство, закупка, оборачиваемость и рекомендуемая отгрузка.</p>
+        <h1>Полноэкранная матрица кластеров WB / Ozon</h1>
+        <p>Слева — все артикула по размерам. Сверху — кластеры. Внутри — заказы 7 дней, план/день, запас, в пути, производство, закупка, покрытие 7 и 14 дней, а также рекомендуемая отгрузка.</p>
       </div>
       <div class="hero-actions">
         <a class="btn btn-ghost" href="index.html">← Вернуться в основной сайт</a>
@@ -44,7 +44,7 @@
           <input id="reportMonthBadge" type="text" disabled />
         </label>
         <label class="field compact">
-          <span>Целевые дни</span>
+          <span>Целевые дни покрытия</span>
           <input id="targetDaysInput" type="number" min="7" max="60" step="1" value="21" />
         </label>
       </div>
@@ -61,91 +61,111 @@
 
     <main class="page-panels">
       <section class="page-panel active" id="page-matrix">
-        <div class="layout-grid">
-          <div class="main-panel">
-            <div class="toolbar">
-              <label class="field search">
-                <span>Поиск</span>
-                <input type="search" id="searchInput" placeholder="Артикул, размер или название" />
-              </label>
-              <label class="field compact">
-                <span>Показывать</span>
-                <select id="showModeSelect">
-                  <option value="all">Все строки</option>
-                  <option value="need">Только где есть потребность</option>
-                  <option value="priority">Только критично / высокий</option>
-                  <option value="manual">Только где есть ручные данные</option>
-                </select>
-              </label>
-              <label class="field compact">
-                <span>Лимит строк</span>
-                <select id="rowLimitSelect">
-                  <option value="25">25</option>
-                  <option value="50" selected>50</option>
-                  <option value="100">100</option>
-                  <option value="9999">Все</option>
-                </select>
-              </label>
-              <label class="field compact">
-                <span>Сортировка</span>
-                <select id="sortSelect">
-                  <option value="need">По рекомендуемой отгрузке</option>
-                  <option value="priority">По приоритету</option>
-                  <option value="daily">По спросу / день</option>
-                  <option value="article">По артикулу</option>
-                </select>
-              </label>
+        <div class="matrix-top-grid">
+          <div class="side-card wide-top-card">
+            <div class="side-head">
+              <h2>Карточка артикула</h2>
+              <p id="selectedSubtitle">Выбери артикул из матрицы ниже.</p>
             </div>
-            <div class="table-meta" id="matrixMeta">Загружаю матрицу…</div>
-            <div class="matrix-wrap">
-              <table class="matrix-table">
-                <thead id="matrixHead"></thead>
-                <tbody id="matrixBody"></tbody>
-              </table>
+            <div id="selectedArticleCard" class="selected-card empty">Пока ничего не выбрано.</div>
+          </div>
+
+          <div class="side-card wide-top-card">
+            <div class="side-head">
+              <h2>Быстрое внесение данных</h2>
+              <p>Здесь Нина заносит в пути, производство, закупку и ручные корректировки.</p>
+            </div>
+            <form id="quickInputForm" class="stack-form">
+              <label class="field">
+                <span>Артикул</span>
+                <select id="quickArticleSelect"></select>
+              </label>
+              <label class="field">
+                <span>Кластер</span>
+                <select id="quickClusterSelect"></select>
+              </label>
+              <div class="field-grid field-grid-5">
+                <label class="field compact"><span>В пути</span><input id="quickTransitInput" type="number" min="0" step="1" /></label>
+                <label class="field compact"><span>Производство</span><input id="quickProductionInput" type="number" min="0" step="1" /></label>
+                <label class="field compact"><span>Закупка</span><input id="quickProcurementInput" type="number" min="0" step="1" /></label>
+                <label class="field compact"><span>Целевые дни</span><input id="quickTargetDaysInput" type="number" min="7" step="1" /></label>
+                <label class="field compact"><span>Коэф. сезона</span><input id="quickSeasonalityInput" type="number" min="0" step="0.1" /></label>
+              </div>
+              <label class="field">
+                <span>Комментарий</span>
+                <textarea id="quickCommentInput" rows="3" placeholder="Что уже в пути / кто взял в работу / где риск"></textarea>
+              </label>
+              <div class="form-actions">
+                <button class="btn btn-primary" type="submit">Сохранить данные</button>
+                <button class="btn btn-ghost" id="quickClearBtn" type="button">Очистить</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="side-card wide-top-card">
+            <div class="side-head">
+              <h2>Топ дефицитов</h2>
+              <p>Клик по артикулу сразу откроет форму заказа.</p>
+            </div>
+            <div id="topDeficitsList" class="deficit-list"></div>
+          </div>
+        </div>
+
+        <div class="main-panel matrix-main-panel">
+          <div class="section-head matrix-headline">
+            <div>
+              <h2>Матрица по артикулам и кластерам</h2>
+              <p>Таблица на всю ширину: слева артикула, справа кластерный срез. Для WB склады в заголовке показываются как агрегированный кластер, если в исходной выгрузке нет разбивки по складам.</p>
             </div>
           </div>
 
-          <aside class="side-panel">
-            <div class="side-card">
-              <div class="side-head">
-                <h2>Карточка артикула</h2>
-                <p id="selectedSubtitle">Выбери артикул из таблицы слева.</p>
-              </div>
-              <div id="selectedArticleCard" class="selected-card empty">Пока ничего не выбрано.</div>
-            </div>
+          <div class="toolbar">
+            <label class="field search">
+              <span>Поиск</span>
+              <input type="search" id="searchInput" placeholder="Артикул, размер или название" />
+            </label>
+            <label class="field compact wide-control">
+              <span>Показывать</span>
+              <select id="showModeSelect">
+                <option value="all">Все строки</option>
+                <option value="need">Только где есть потребность</option>
+                <option value="priority">Только критично / высокий</option>
+                <option value="manual">Только где есть ручные данные</option>
+              </select>
+            </label>
+            <label class="field compact wide-control">
+              <span>Лимит строк</span>
+              <select id="rowLimitSelect">
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="9999" selected>Все</option>
+              </select>
+            </label>
+            <label class="field compact wide-control">
+              <span>Сортировка</span>
+              <select id="sortSelect">
+                <option value="need">По рекомендуемой отгрузке</option>
+                <option value="priority">По приоритету</option>
+                <option value="daily">По спросу / день</option>
+                <option value="article">По артикулу</option>
+              </select>
+            </label>
+          </div>
 
-            <div class="side-card">
-              <div class="side-head">
-                <h2>Быстрое внесение данных</h2>
-                <p>В пути, производство, закупка, override сезонности и целевые дни.</p>
-              </div>
-              <form id="quickInputForm" class="stack-form">
-                <label class="field">
-                  <span>Артикул</span>
-                  <select id="quickArticleSelect"></select>
-                </label>
-                <label class="field">
-                  <span>Кластер</span>
-                  <select id="quickClusterSelect"></select>
-                </label>
-                <div class="field-grid">
-                  <label class="field compact"><span>В пути</span><input id="quickTransitInput" type="number" min="0" step="1" /></label>
-                  <label class="field compact"><span>Производство</span><input id="quickProductionInput" type="number" min="0" step="1" /></label>
-                  <label class="field compact"><span>Закупка</span><input id="quickProcurementInput" type="number" min="0" step="1" /></label>
-                  <label class="field compact"><span>Целевые дни</span><input id="quickTargetDaysInput" type="number" min="7" step="1" /></label>
-                  <label class="field compact"><span>Seasonality override</span><input id="quickSeasonalityInput" type="number" min="0" step="0.1" /></label>
-                </div>
-                <label class="field">
-                  <span>Комментарий</span>
-                  <textarea id="quickCommentInput" rows="3" placeholder="Что уже в пути / кто взял в работу"></textarea>
-                </label>
-                <div class="form-actions">
-                  <button class="btn btn-primary" type="submit">Сохранить данные</button>
-                  <button class="btn btn-ghost" id="quickClearBtn" type="button">Очистить</button>
-                </div>
-              </form>
-            </div>
-          </aside>
+          <div class="legend-bar">
+            <span class="legend-chip"><strong>Покр.7</strong> — покрытие по фактическому темпу 7 дней</span>
+            <span class="legend-chip"><strong>Покр.14</strong> — покрытие по сглаженному темпу с учётом сезонного плана</span>
+            <span class="legend-chip"><strong>Дата прихода</strong> — плановая дата поступления, раньше называлась ETA</span>
+          </div>
+
+          <div class="table-meta" id="matrixMeta">Загружаю матрицу…</div>
+          <div class="matrix-wrap full-width-matrix">
+            <table class="matrix-table">
+              <thead id="matrixHead"></thead>
+              <tbody id="matrixBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -154,7 +174,7 @@
           <div class="section-head">
             <div>
               <h2>Запасы / заказы / производство / оборачиваемость</h2>
-              <p>Плоская таблица по кластерам. Можно смотреть отдельно от большой матрицы.</p>
+              <p>Плоская таблица по артикулам и кластерам. Тут же видно покрытие 7 и 14 дней.</p>
             </div>
             <div class="section-actions">
               <button class="btn btn-ghost" id="exportStockBtn" type="button">Экспорт CSV</button>
@@ -167,13 +187,14 @@
                   <th>Артикул</th>
                   <th>Товар</th>
                   <th>Кластер</th>
-                  <th>7д</th>
+                  <th>Заказы 7д</th>
                   <th>План/д</th>
                   <th>Запас</th>
                   <th>В пути</th>
                   <th>Пр-во</th>
                   <th>Закуп</th>
-                  <th>Оборач.</th>
+                  <th>Покр.7</th>
+                  <th>Покр.14</th>
                   <th>Нужно</th>
                   <th>Осн. склад</th>
                 </tr>
@@ -185,83 +206,72 @@
       </section>
 
       <section class="page-panel" id="page-orders">
-        <div class="orders-grid">
-          <div class="main-panel">
-            <div class="section-head">
-              <div>
-                <h2>Заявка на товар</h2>
-                <p>Из дефицита сразу сделать заявку на отгрузку / производство / закупку.</p>
-              </div>
-              <div class="section-actions">
-                <button class="btn btn-ghost" id="exportOrdersBtn" type="button">Экспорт заявок CSV</button>
-              </div>
+        <div class="main-panel">
+          <div class="section-head">
+            <div>
+              <h2>Заявка на товар</h2>
+              <p>Из дефицита сразу сделать заявку на отгрузку / производство / закупку.</p>
             </div>
-            <form id="orderForm" class="order-form">
-              <label class="field">
-                <span>Артикул</span>
-                <select id="orderArticleSelect"></select>
-              </label>
-              <label class="field">
-                <span>Кластер</span>
-                <select id="orderClusterSelect"></select>
-              </label>
-              <label class="field compact">
-                <span>Реком.</span>
-                <input id="orderRecommendedInput" type="number" disabled />
-              </label>
-              <label class="field compact">
-                <span>Заказать</span>
-                <input id="orderQtyInput" type="number" min="0" step="1" />
-              </label>
-              <label class="field compact">
-                <span>Источник</span>
-                <select id="orderSourceSelect">
-                  <option value="main-stock">Осн. склад</option>
-                  <option value="production">Производство</option>
-                  <option value="procurement">Закупка</option>
-                  <option value="mix">Комбинированно</option>
-                </select>
-              </label>
-              <label class="field compact">
-                <span>Приоритет</span>
-                <select id="orderPrioritySelect">
-                  <option value="critical">Критично</option>
-                  <option value="high">Высокий</option>
-                  <option value="medium">Средний</option>
-                  <option value="low">Низкий</option>
-                </select>
-              </label>
-              <label class="field compact">
-                <span>ETA</span>
-                <input id="orderEtaInput" type="date" />
-              </label>
-              <label class="field">
-                <span>Комментарий</span>
-                <textarea id="orderCommentInput" rows="3" placeholder="Откуда закрываем, кто ответственный"></textarea>
-              </label>
-              <div class="form-actions">
-                <button class="btn btn-primary" type="submit">Сохранить заявку</button>
-                <button class="btn btn-ghost" id="resetOrderBtn" type="button">Очистить форму</button>
-              </div>
-            </form>
-            <div class="list-wrap">
-              <table class="simple-table">
-                <thead>
-                  <tr><th>Дата</th><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>Кол-во</th><th>Источник</th><th>ETA</th><th>Комментарий</th></tr>
-                </thead>
-                <tbody id="ordersBody"></tbody>
-              </table>
+            <div class="section-actions">
+              <button class="btn btn-ghost" id="exportOrdersBtn" type="button">Экспорт заявок CSV</button>
             </div>
           </div>
-          <aside class="side-panel">
-            <div class="side-card">
-              <div class="side-head">
-                <h2>Топ дефицитов</h2>
-                <p>Клик по строке — заявка заполнится автоматически.</p>
-              </div>
-              <div id="topDeficitsList" class="deficit-list"></div>
+          <form id="orderForm" class="order-form">
+            <label class="field">
+              <span>Артикул</span>
+              <select id="orderArticleSelect"></select>
+            </label>
+            <label class="field">
+              <span>Кластер</span>
+              <select id="orderClusterSelect"></select>
+            </label>
+            <label class="field compact">
+              <span>Реком.</span>
+              <input id="orderRecommendedInput" type="number" disabled />
+            </label>
+            <label class="field compact">
+              <span>Заказать</span>
+              <input id="orderQtyInput" type="number" min="0" step="1" />
+            </label>
+            <label class="field compact">
+              <span>Источник</span>
+              <select id="orderSourceSelect">
+                <option value="main-stock">Осн. склад</option>
+                <option value="production">Производство</option>
+                <option value="procurement">Закупка</option>
+                <option value="mix">Комбинированно</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>Приоритет</span>
+              <select id="orderPrioritySelect">
+                <option value="critical">Критично</option>
+                <option value="high">Высокий</option>
+                <option value="medium">Средний</option>
+                <option value="low">Низкий</option>
+              </select>
+            </label>
+            <label class="field compact">
+              <span>Дата прихода</span>
+              <input id="orderEtaInput" type="date" />
+            </label>
+            <label class="field">
+              <span>Комментарий</span>
+              <textarea id="orderCommentInput" rows="3" placeholder="Откуда закрываем, кто ответственный, есть ли риск"></textarea>
+            </label>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Сохранить заявку</button>
+              <button class="btn btn-ghost" id="resetOrderBtn" type="button">Очистить форму</button>
             </div>
-          </aside>
+          </form>
+          <div class="list-wrap">
+            <table class="simple-table">
+              <thead>
+                <tr><th>Дата</th><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>Кол-во</th><th>Источник</th><th>Дата прихода</th><th>Комментарий</th></tr>
+              </thead>
+              <tbody id="ordersBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -270,7 +280,7 @@
           <div class="section-head">
             <div>
               <h2>Внесенные данные</h2>
-              <p>Журнал ручных данных по кластерам: в пути, производство, закупка, overrides.</p>
+              <p>Журнал ручных данных по кластерам: в пути, производство, закупка и сезонные корректировки.</p>
             </div>
             <div class="section-actions">
               <button class="btn btn-ghost" id="exportInputsBtn" type="button">Экспорт данных CSV</button>
@@ -279,7 +289,7 @@
           <div class="list-wrap">
             <table class="simple-table">
               <thead>
-                <tr><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>В пути</th><th>Пр-во</th><th>Закупка</th><th>Целевые дни</th><th>Override</th><th>Комментарий</th></tr>
+                <tr><th>Платформа</th><th>Артикул</th><th>Кластер</th><th>В пути</th><th>Пр-во</th><th>Закупка</th><th>Целевые дни</th><th>Коэф. сезона</th><th>Комментарий</th></tr>
               </thead>
               <tbody id="inputsBody"></tbody>
             </table>
@@ -300,17 +310,17 @@
             </ol>
           </article>
           <article class="formula-card">
-            <h2>Как учли сезонность</h2>
-            <p>Сезонность не «на глаз». Для артикула берется план/день по месяцам и рассчитывается коэффициент сезона:</p>
-            <p><strong>Коэф. сезона</strong> = план/день текущего месяца ÷ средний план/день по доступным месяцам.</p>
-            <p>Если нужно, в форме можно задать <strong>seasonality override</strong> и пересчитать товар вручную.</p>
+            <h2>Что значит Покр.7 и Покр.14</h2>
+            <p><strong>Покр.7</strong> показывает, на сколько дней хватит доступного товара по фактическому темпу последних 7 дней.</p>
+            <p><strong>Покр.14</strong> — более строгий показатель: он считает покрытие по сглаженному темпу с сезонным планом, чтобы не недооценивать пики спроса.</p>
+            <p>Если нужно, в форме можно задать <strong>коэффициент сезона</strong> и пересчитать товар вручную.</p>
           </article>
           <article class="formula-card">
             <h2>Логика работы Нины</h2>
             <ul>
-              <li>Смотреть матрицу и фильтр «Только где есть потребность».</li>
-              <li>Если часть товара уже едет / в производстве / в закупке — заносить это в форму.</li>
-              <li>После этого формировать заявки на товар по кластерам.</li>
+              <li>Смотреть матрицу без лимита или фильтр «Только где есть потребность».</li>
+              <li>Сначала обновить в пути / производство / закупку, потом принимать решение по отгрузке.</li>
+              <li>В заявку заносить <strong>дату прихода</strong>, а не абстрактный ETA.</li>
             </ul>
           </article>
         </div>
