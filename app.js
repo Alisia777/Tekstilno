@@ -62,8 +62,8 @@ function cacheElements() {
   const ids = [
     "heroTitle", "storageModeBadge", "planFactBadge", "clusterBadge", "packSizeBadge", "banner",
     "globalReportDate",
-    "wbResponsibilityBadge", "wbSourceBadge", "wbPackCard", "wbCountCard", "wbCriticalCard", "wbPlanOrdersCard", "wbFactOrdersCard", "wbDeltaOrdersCard", "wbPlanMarginCard", "wbSupplyCard", "wbPackFilter", "wbPriorityFilter", "wbStatusFilter", "wbSearchFilter", "wbPlanNote", "wbArticlesBody", "wbDayComment", "wbNeedHelp", "wbSaveBtn", "wbExportBtn", "wbSubmitBtn",
-    "ozonResponsibilityBadge", "ozonSourceBadge", "ozonPackCard", "ozonCountCard", "ozonCriticalCard", "ozonPlanOrdersCard", "ozonFactOrdersCard", "ozonDeltaOrdersCard", "ozonPlanMarginCard", "ozonSupplyCard", "ozonPackFilter", "ozonPriorityFilter", "ozonStatusFilter", "ozonSearchFilter", "ozonPlanNote", "ozonArticlesBody", "ozonDayComment", "ozonNeedHelp", "ozonSaveBtn", "ozonExportBtn", "ozonSubmitBtn",
+    "wbResponsibilityBadge", "wbSourceBadge", "wbPackCard", "wbCountCard", "wbCriticalCard", "wbPlanOrdersCard", "wbFactOrdersCard", "wbDeltaOrdersCard", "wbPlanMarginCard", "wbSupplyCard", "wbPackFilter", "wbPriorityFilter", "wbStatusFilter", "wbSearchFilter", "wbPlanNote", "wbArticlesBody", "wbDayComment", "wbNeedHelp", "wbSaveBtn", "wbExportBtn", "wbSubmitBtn", "wbTrendChart", "wbTrendCaption", "wbDeviationList",
+    "ozonResponsibilityBadge", "ozonSourceBadge", "ozonPackCard", "ozonCountCard", "ozonCriticalCard", "ozonPlanOrdersCard", "ozonFactOrdersCard", "ozonDeltaOrdersCard", "ozonPlanMarginCard", "ozonSupplyCard", "ozonPackFilter", "ozonPriorityFilter", "ozonStatusFilter", "ozonSearchFilter", "ozonPlanNote", "ozonArticlesBody", "ozonDayComment", "ozonNeedHelp", "ozonSaveBtn", "ozonExportBtn", "ozonSubmitBtn", "ozonTrendChart", "ozonTrendCaption", "ozonDeviationList",
     "suppliesChannel", "suppliesArticleSelect", "suppliesTargetDays", "suppliesCoordinator", "suppliesTitleCard", "suppliesMainStockCard", "suppliesPlatformStockCard", "suppliesDemandCard", "suppliesRecommendedCard", "suppliesRowsCard", "suppliesHint", "suppliesRowsBody", "suppliesSaveBtn", "suppliesExportBtn", "suppliesSubmitBtn",
     "leaderDateFilter", "leaderTypeFilter", "leaderManagerFilter", "leaderSourceFilter", "leaderTotalCard", "leaderManagerCard", "leaderClusterCard", "leaderIssuesCard", "leaderFeedBody", "leaderDetails", "leaderRefreshBtn", "leaderExportAllBtn", "leaderImportInput", "openSheetBtn",
     "toast"
@@ -121,6 +121,9 @@ function bindEvents() {
     });
     els[`${prefix}ExportBtn`].addEventListener("click", () => exportManagerCurrent(tabKey));
     els[`${prefix}SubmitBtn`].addEventListener("click", () => submitManager(tabKey));
+    if (els[`${prefix}DeviationList`]) {
+      els[`${prefix}DeviationList`].addEventListener("click", (event) => handleDeviationJump(tabKey, event));
+    }
   });
 
   els.suppliesChannel.addEventListener("change", () => {
@@ -322,7 +325,7 @@ function renderManagerTable(tabKey) {
   const articles = getFilteredManagerArticles(tabKey);
 
   if (!articles.length) {
-    body.innerHTML = `<tr><td colspan="8"><div class="empty-state">По текущим фильтрам ничего не найдено.</div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="6"><div class="empty-state">По текущим фильтрам ничего не найдено.</div></td></tr>`;
     return;
   }
 
@@ -333,65 +336,55 @@ function renderManagerRow(tabKey, article) {
   const draftRow = getManagerDraftRow(tabKey, article.sellerArticle);
   const plan = getArticlePlan(article, state.date);
   const fact = article.metrics || {};
-  const delta = isNumber(plan?.planOrdersDay) && isNumber(fact.factOrdersDay)
-    ? round2(fact.factOrdersDay - plan.planOrdersDay)
-    : null;
-
-  const planHtml = plan
-    ? `
-      <div class="metric-group">
-        <strong>План ${monthLabelFromDate(state.date)}</strong>
-        <ul>
-          <li>Заказы / день: <b>${fmtNumber(plan.planOrdersDay)}</b></li>
-          <li>Выручка / день: <b>${fmtMoney(plan.planRevenueDay)}</b></li>
-          <li>Маржа / день: <b>${fmtMoney(plan.planMarginIncomeDay)}</b></li>
-        </ul>
-      </div>`
-    : `
-      <div class="metric-group">
-        <strong>План ${monthLabelFromDate(state.date)}</strong>
-        <ul><li>Нет прямой плановой строки в файле плана.</li></ul>
-      </div>`;
-
-  const factMoneyLabel = fact.factMoneyLabel || "Факт ₽ / день";
+  const delta = getArticleDelta(article, state.date);
+  const rowTone = delta !== null && delta < 0 ? "alert-row" : "";
   const priorityClass = priorityClassName(article.priorityBucket);
+  const shortAction = firstSentence(article.action || "Задача не задана", 160);
+  const shortReason = clipText(article.reason || "—", 180);
+  const tags = Array.isArray(article.tags) ? article.tags.slice(0, 3) : [];
+  const deltaClass = delta === null ? "" : delta < 0 ? "negative" : "positive";
+  const factMoneyLabel = fact.factMoneyLabel || "Факт ₽ / день";
+
+  const metricsHtml = `
+    <div class="metrics-grid">
+      <span class="metric-chip"><span>План</span><strong>${fmtNumber(plan?.planOrdersDay)}</strong></span>
+      <span class="metric-chip"><span>Факт</span><strong>${fmtNumber(fact.factOrdersDay)}</strong></span>
+      <span class="metric-chip ${deltaClass}"><span>Δ</span><strong>${fmtSignedNumber(delta)}</strong></span>
+      <span class="metric-chip"><span>МП</span><strong>${fmtInt(fact.mpStock)}</strong></span>
+      <span class="metric-chip ${isNumber(fact.coverageDays) && fact.coverageDays < 15 ? "warn" : ""}"><span>Покр.</span><strong>${fmtNumber(fact.coverageDays)} дн</strong></span>
+      <span class="metric-chip"><span>Нужно</span><strong>${fmtInt(fact.supplyNeed)}</strong></span>
+    </div>
+    <div class="metric-footnote">${escapeHtml(factMoneyLabel)}: ${fmtMoney(fact.factMoneyDay)} · План выручки: ${fmtMoney(plan?.planRevenueDay)} · План маржи: ${fmtMoney(plan?.planMarginIncomeDay)}</div>
+  `;
 
   return `
-    <tr data-seller-article="${escapeHtml(article.sellerArticle)}">
+    <tr class="article-row ${rowTone}" data-seller-article="${escapeHtml(article.sellerArticle)}">
       <td><span class="priority-pill ${priorityClass}">${escapeHtml(article.priorityLabel || "—")}</span></td>
       <td class="article-cell">
         <strong>${escapeHtml(article.sellerArticle || "—")}</strong>
-        <div class="muted">${escapeHtml(article.platformArticleLabel || article.channel + " ID")} : ${escapeHtml(displayPlatformArticle(article) || "—")}</div>
-        ${article.wbArticle && article.channel === "Ozon" ? `<div class="muted">WB артикул: ${escapeHtml(article.wbArticle)}</div>` : ""}
+        <div class="article-meta">${escapeHtml(article.name || "Без названия")}</div>
+        <div class="article-meta">${escapeHtml(article.platformArticleLabel || article.channel + " ID")}: ${escapeHtml(displayPlatformArticle(article) || "—")} · ${escapeHtml(article.category || "")}</div>
       </td>
-      <td class="article-cell">
-        <strong>${escapeHtml(article.name || "Без названия")}</strong>
-        <div class="muted">${escapeHtml(article.category || "")}</div>
-      </td>
-      <td>${escapeHtml(article.action || "Задача не задана")}</td>
-      <td>${escapeHtml(article.reason || "—")}</td>
-      <td>
-        <div class="article-metrics">
-          ${planHtml}
-          <div class="metric-group">
-            <strong>Факт</strong>
-            <ul>
-              <li>Заказы / день: <b>${fmtNumber(fact.factOrdersDay)}</b></li>
-              <li>${escapeHtml(factMoneyLabel)}: <b>${fmtMoney(fact.factMoneyDay)}</b></li>
-              <li>МП: <b>${fmtInt(fact.mpStock)}</b> шт · <b>${fmtNumber(fact.coverageDays)}</b> дн</li>
-              <li>Осн. склад: <b>${fmtInt(article.mainWarehouseStock)}</b> · Нужно: <b>${fmtInt(fact.supplyNeed)}</b></li>
-              ${delta !== null ? `<li>Отклонение заказов: <b>${delta >= 0 ? "+" : ""}${fmtNumber(delta)}</b></li>` : ""}
-            </ul>
+      <td class="task-cell">
+        <div class="task-title">${escapeHtml(shortAction)}</div>
+        <div class="task-subline">${escapeHtml(shortReason)}</div>
+        ${tags.length ? `<div class="tag-row">${tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
+        <details class="inline-details">
+          <summary>подробнее</summary>
+          <div>
+            <div class="muted"><strong>Что сделать:</strong> ${escapeHtml(article.action || "—")}</div>
+            <div class="muted" style="margin-top:6px"><strong>Почему:</strong> ${escapeHtml(article.reason || "—")}</div>
           </div>
-        </div>
+        </details>
       </td>
+      <td class="metrics-cell">${metricsHtml}</td>
       <td>
         <select class="status-select article-status" data-seller-article="${escapeHtml(article.sellerArticle)}">
           ${MANAGER_STATUS_OPTIONS.map((opt) => `<option value="${opt.value}" ${draftRow.status === opt.value ? "selected" : ""}>${escapeHtml(opt.label)}</option>`).join("")}
         </select>
       </td>
       <td>
-        <textarea class="row-input article-comment" data-seller-article="${escapeHtml(article.sellerArticle)}" rows="4" placeholder="Что сделано, какой результат, что дальше">${escapeHtml(draftRow.comment || "")}</textarea>
+        <textarea class="row-input article-comment" data-seller-article="${escapeHtml(article.sellerArticle)}" rows="3" placeholder="Что сделано / результат / что дальше">${escapeHtml(draftRow.comment || "")}</textarea>
       </td>
     </tr>
   `;
@@ -415,10 +408,199 @@ function updateManagerSummary(tabKey) {
   els[`${prefix}CriticalCard`].textContent = String(critical);
   els[`${prefix}PlanOrdersCard`].textContent = fmtNumber(planOrders);
   els[`${prefix}FactOrdersCard`].textContent = fmtNumber(factOrders);
-  els[`${prefix}DeltaOrdersCard`].textContent = delta === null ? "—" : `${delta >= 0 ? "+" : ""}${fmtNumber(delta)}`;
+  els[`${prefix}DeltaOrdersCard`].textContent = fmtSignedNumber(delta);
   els[`${prefix}PlanMarginCard`].textContent = fmtMoney(planMargin);
   els[`${prefix}SupplyCard`].textContent = `${fmtInt(supplyNeed)} шт`;
-  els[`${prefix}PlanNote`].textContent = `План ${monthLabelFromDate(state.date)} найден по ${matched}/${scopedArticles.length} артикулам выбранного пакета. Менеджер заполняет только статус и комментарий.`;
+  els[`${prefix}PlanNote`].textContent = `План ${monthLabelFromDate(state.date)} найден по ${matched}/${scopedArticles.length} артикулам выбранного пакета.`;
+
+  const deltaCard = els[`${prefix}DeltaOrdersCard`]?.closest('.delta-card') || els[`${prefix}DeltaOrdersCard`]?.closest('.card');
+  if (deltaCard) {
+    deltaCard.dataset.tone = delta === null ? 'neutral' : delta < 0 ? 'negative' : 'positive';
+  }
+
+  renderManagerInsights(tabKey);
+}
+
+function renderManagerInsights(tabKey) {
+  renderTrendChart(tabKey);
+  renderTopDeviationList(tabKey);
+}
+
+function renderTrendChart(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const chartEl = els[`${meta.prefix}TrendChart`];
+  const captionEl = els[`${meta.prefix}TrendCaption`];
+  if (!chartEl || !captionEl) return;
+
+  const articles = getScopedManagerArticles(tabKey);
+  const planDaily = sum(articles.map((article) => getArticlePlan(article, state.date)?.planOrdersDay));
+  const factDaily = sum(articles.map((article) => article.metrics?.factOrdersDay));
+
+  if (!articles.length || !isNumber(planDaily) || !isNumber(factDaily)) {
+    chartEl.innerHTML = `<div class="chart-empty">Недостаточно данных для графика.</div>`;
+    captionEl.textContent = "График строится по текущему темпу пакета.";
+    return;
+  }
+
+  const dates = getRecentBusinessDays(state.date, 10);
+  const points = dates.map((dateStr, index) => ({
+    label: dateShortLabel(dateStr),
+    plan: round2(planDaily * (index + 1)),
+    fact: round2(factDaily * (index + 1))
+  }));
+
+  chartEl.innerHTML = buildTrendSvg(points);
+  const delta = factDaily - planDaily;
+  const tone = delta < 0 ? "ниже" : "выше";
+  captionEl.textContent = `Траектория за 10 рабочих дней по текущему темпу пакета. План: ${fmtNumber(planDaily)} / день, факт: ${fmtNumber(factDaily)} / день, сейчас ${tone} плана на ${fmtNumber(Math.abs(delta))}.`;
+}
+
+function renderTopDeviationList(tabKey) {
+  const meta = MANAGER_TABS[tabKey];
+  const listEl = els[`${meta.prefix}DeviationList`];
+  if (!listEl) return;
+
+  const managerData = getManagerData(tabKey);
+  const currentPack = getCurrentPackNumber(managerData, state.date);
+  const rows = (managerData?.articles || [])
+    .map((article) => {
+      const plan = getArticlePlan(article, state.date);
+      const fact = article.metrics || {};
+      const delta = getArticleDelta(article, state.date);
+      if (!plan || !isNumber(plan.planOrdersDay) || !isNumber(fact.factOrdersDay) || !isNumber(delta) || delta >= 0) return null;
+      return {
+        article,
+        delta,
+        gap: round2(plan.planOrdersDay - fact.factOrdersDay),
+        ratio: plan.planOrdersDay ? round2(((plan.planOrdersDay - fact.factOrdersDay) / plan.planOrdersDay) * 100) : null,
+        packLabel: Number(article.packNumber || 1) === Number(currentPack) ? 'в текущем пакете' : `пакет ${article.packNumber || 1}`,
+        current: Number(article.packNumber || 1) === Number(currentPack),
+        planOrdersDay: plan.planOrdersDay,
+        factOrdersDay: fact.factOrdersDay
+      };
+    })
+    .filter(Boolean);
+
+  const outsideCurrent = rows
+    .filter((row) => !row.current)
+    .sort((a, b) => b.gap - a.gap);
+  const insideCurrent = rows
+    .filter((row) => row.current)
+    .sort((a, b) => b.gap - a.gap);
+  const ranked = outsideCurrent.concat(insideCurrent).slice(0, 5);
+
+  if (!ranked.length) {
+    listEl.innerHTML = `<div class="empty-state">Сильных отклонений ниже плана не найдено.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = ranked.map((row, index) => `
+    <button type="button" class="deviation-item" data-jump-article="${escapeAttr(row.article.sellerArticle)}" data-pack="${escapeAttr(row.article.packNumber || 1)}">
+      <span class="rank-badge">${index + 1}</span>
+      <div class="deviation-main">
+        <strong>${escapeHtml(row.article.sellerArticle)}</strong>
+        <small>${escapeHtml(row.article.name || 'Без названия')}</small>
+        <div class="deviation-meta">
+          <span class="mini-chip">План <b>${fmtNumber(row.planOrdersDay)}</b></span>
+          <span class="mini-chip">Факт <b>${fmtNumber(row.factOrdersDay)}</b></span>
+          <span class="mini-chip negative">-${fmtNumber(row.gap)}</span>
+          <span class="mini-chip">${fmtInt(row.article.metrics?.supplyNeed)} шт к допоставке</span>
+        </div>
+      </div>
+      <span class="deviation-pack">${escapeHtml(row.packLabel)}</span>
+    </button>
+  `).join("");
+}
+
+function handleDeviationJump(tabKey, event) {
+  const button = event.target.closest('[data-jump-article]');
+  if (!button) return;
+  const meta = MANAGER_TABS[tabKey];
+  const article = button.dataset.jumpArticle;
+  const pack = button.dataset.pack || 'current';
+  state.filters[tabKey].pack = String(pack);
+  state.filters[tabKey].search = article;
+  if (els[`${meta.prefix}PackFilter`]) {
+    populatePackFilter(tabKey);
+    els[`${meta.prefix}PackFilter`].value = String(pack);
+  }
+  if (els[`${meta.prefix}SearchFilter`]) {
+    els[`${meta.prefix}SearchFilter`].value = article;
+  }
+  renderManagerTable(tabKey);
+  updateManagerSummary(tabKey);
+  showToast(`Открыт артикул ${article}.`);
+}
+
+function buildTrendSvg(points) {
+  if (!points.length) {
+    return `<div class="chart-empty">Нет точек для графика.</div>`;
+  }
+  const width = 760;
+  const height = 250;
+  const left = 54;
+  const right = 20;
+  const top = 20;
+  const bottom = 34;
+  const innerW = width - left - right;
+  const innerH = height - top - bottom;
+  const maxY = Math.max(...points.flatMap((p) => [p.plan, p.fact]), 1);
+  const niceMax = Math.ceil(maxY / 10) * 10;
+  const yTicks = 4;
+  const xStep = points.length > 1 ? innerW / (points.length - 1) : innerW;
+  const scaleY = (value) => top + innerH - (value / niceMax) * innerH;
+  const scaleX = (index) => left + index * xStep;
+  const planPath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index).toFixed(2)} ${scaleY(point.plan).toFixed(2)}`).join(' ');
+  const factPath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${scaleX(index).toFixed(2)} ${scaleY(point.fact).toFixed(2)}`).join(' ');
+
+  const gridLines = Array.from({ length: yTicks + 1 }, (_, idx) => {
+    const value = niceMax * (idx / yTicks);
+    const y = scaleY(value);
+    return `<g><line class="trend-grid" x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" /><text x="12" y="${y + 4}">${fmtNumber(value)}</text></g>`;
+  }).join('');
+
+  const xLabels = points.map((point, index) => {
+    const x = scaleX(index);
+    return `<text x="${x}" y="${height - 12}" text-anchor="middle">${escapeHtml(point.label)}</text>`;
+  }).join('');
+
+  const lastIndex = points.length - 1;
+  return `
+    <svg class="trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Темп к плану">
+      ${gridLines}
+      <line class="trend-axis" x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" />
+      <path class="trend-plan" d="${planPath}" />
+      <path class="trend-fact" d="${factPath}" />
+      <circle class="trend-point-plan" cx="${scaleX(lastIndex)}" cy="${scaleY(points[lastIndex].plan)}" r="4.5" />
+      <circle class="trend-point-fact" cx="${scaleX(lastIndex)}" cy="${scaleY(points[lastIndex].fact)}" r="4.5" />
+      <g transform="translate(${left}, 16)">
+        <line x1="0" y1="0" x2="20" y2="0" class="trend-plan"></line>
+        <text class="legend-label" x="28" y="4">План</text>
+        <line x1="92" y1="0" x2="112" y2="0" class="trend-fact"></line>
+        <text class="legend-label" x="120" y="4">Факт</text>
+      </g>
+      ${xLabels}
+    </svg>
+  `;
+}
+
+function getRecentBusinessDays(dateStr, count) {
+  const result = [];
+  const cursor = new Date(`${dateStr}T00:00:00`);
+  while (result.length < count) {
+    if (isBusinessDay(cursor)) {
+      result.unshift(formatDateInput(cursor));
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return result;
+}
+
+function dateShortLabel(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(date);
 }
 
 function handleManagerTableChange(tabKey, event) {
@@ -747,7 +929,7 @@ function renderSuppliesView() {
   draft.targetDays = Number(els.suppliesTargetDays.value || state.filters.supplies.targetDays || 21);
   els.suppliesCoordinator.value = draft.coordinator || "";
 
-  if (!rows.length) {
+  if (!ranked.length) {
     els.suppliesTitleCard.textContent = "—";
     els.suppliesMainStockCard.textContent = "—";
     els.suppliesPlatformStockCard.textContent = "—";
@@ -1408,6 +1590,31 @@ function maxValue(values) {
 
 function isNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function getArticleDelta(article, dateStr) {
+  const plan = getArticlePlan(article, dateStr);
+  const fact = article?.metrics || {};
+  if (!isNumber(plan?.planOrdersDay) || !isNumber(fact.factOrdersDay)) return null;
+  return round2(fact.factOrdersDay - plan.planOrdersDay);
+}
+
+function fmtSignedNumber(value) {
+  if (!isNumber(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${fmtNumber(value)}`;
+}
+
+function clipText(value, maxLength = 140) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1).trim()}…` : text;
+}
+
+function firstSentence(value, maxLength = 160) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const match = text.match(/^[^.?!]+[.?!]?/);
+  return clipText(match ? match[0] : text, maxLength);
 }
 
 function fmtNumber(value) {

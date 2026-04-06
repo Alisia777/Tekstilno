@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v9.0",
+  siteVersion: "v10.0",
   appsScriptUrl: "",
   googleSheetUrl: "",
   packSize: 20,

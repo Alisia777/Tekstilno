@@ -3,52 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Текстильно — задачи по артикулам, поставки и контроль</title>
-  <meta name="description" content="Сайт Текстильно: отдельные вкладки WB, Ozon, Поставки и Руководитель. План и факт по артикулам подтягиваются автоматически, менеджеры заполняют только статусы и комментарии." />
+  <title>Текстильно — контроль задач, план/факт и поставки</title>
+  <meta name="description" content="Рабочий сайт Текстильно: вкладки WB, Ozon, Поставки и Руководитель. Менеджеры отмечают только задачи, а план/факт подтягивается автоматически." />
   <link rel="stylesheet" href="styles.css" />
   <script src="config.js"></script>
 </head>
 <body>
   <div class="page">
-    <header class="hero">
-      <div class="hero-main">
-        <span class="eyebrow">Текстильно · задачи по артикулам</span>
-        <h1 id="heroTitle">Прозрачный сайт для WB, Ozon, поставок и руководителя</h1>
-        <p class="lead">
-          План и факт по артикулам подтягиваются из файлов автоматически. Менеджеры больше не заносят метрики руками — только отмечают статус выполнения задач по артикулу и пишут комментарий.
-        </p>
-        <div class="hero-actions">
-          <button type="button" class="btn btn-primary" data-open-tab="wb">Открыть WB</button>
-          <button type="button" class="btn btn-secondary" data-open-tab="ozon">Открыть Ozon</button>
-          <button type="button" class="btn btn-secondary" data-open-tab="supplies">Открыть поставки</button>
-          <button type="button" class="btn btn-secondary" data-open-tab="leader">Открыть руководителя</button>
-        </div>
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Текстильно</span>
+        <h1 id="heroTitle">Контроль задач, план/факт и поставки</h1>
+        <p class="lead">Менеджеры отмечают только статус и комментарий. План, факт и отклонения сайт показывает сам.</p>
       </div>
-
-      <aside class="hero-side">
+      <div class="topbar-side">
         <label class="field">
           <span>Рабочая дата</span>
           <input type="date" id="globalReportDate" />
         </label>
-        <div class="metric-stack">
-          <div class="hero-metric">
-            <span>Хранение</span>
-            <strong id="storageModeBadge">локально</strong>
-          </div>
-          <div class="hero-metric">
-            <span>План/факт</span>
-            <strong id="planFactBadge">загрузка…</strong>
-          </div>
-          <div class="hero-metric">
-            <span>Кластера</span>
-            <strong id="clusterBadge">загрузка…</strong>
-          </div>
-          <div class="hero-metric">
-            <span>Пакет</span>
-            <strong id="packSizeBadge">20 артикулов</strong>
-          </div>
+        <div class="hero-stats">
+          <div class="hero-metric"><span>Хранение</span><strong id="storageModeBadge">локально</strong></div>
+          <div class="hero-metric"><span>План/факт</span><strong id="planFactBadge">загрузка…</strong></div>
+          <div class="hero-metric"><span>Кластера</span><strong id="clusterBadge">загрузка…</strong></div>
+          <div class="hero-metric"><span>Пакет</span><strong id="packSizeBadge">20</strong></div>
         </div>
-      </aside>
+      </div>
     </header>
 
     <div id="banner" class="banner">Загружаю данные…</div>
@@ -63,15 +42,15 @@
     <main class="tab-wrap">
       <section class="tab-panel active" id="tab-wb">
         <div class="panel">
-          <div class="panel-head">
+          <div class="panel-head compact-head">
             <div>
               <h2>WB · Анастасия</h2>
-              <p>Менеджер видит свой пакет артикулов на день, а ты — прозрачный статус по каждому артикулу. План и факт подтягиваются автоматически.</p>
+              <p>Только задачи по артикулам и комментарии менеджера.</p>
             </div>
             <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="wbSaveBtn">Сохранить черновик</button>
-              <button type="button" class="btn btn-ghost" id="wbExportBtn">Экспорт JSON</button>
-              <button type="button" class="btn btn-primary" id="wbSubmitBtn">Сдать пакет WB</button>
+              <button type="button" class="btn btn-ghost" id="wbSaveBtn">Сохранить</button>
+              <button type="button" class="btn btn-ghost" id="wbExportBtn">Экспорт</button>
+              <button type="button" class="btn btn-primary" id="wbSubmitBtn">Сдать WB</button>
             </div>
           </div>
 
@@ -82,15 +61,38 @@
             <span class="badge" id="wbSourceBadge">Источник: загрузка…</span>
           </div>
 
-          <div class="cards cards-8">
-            <article class="card metric"><span>Текущий пакет</span><strong id="wbPackCard">—</strong></article>
-            <article class="card metric"><span>Артикулов</span><strong id="wbCountCard">—</strong></article>
+          <div class="cards cards-8 compact-cards">
+            <article class="card metric"><span>Пакет</span><strong id="wbPackCard">—</strong></article>
+            <article class="card metric"><span>Артикулы</span><strong id="wbCountCard">—</strong></article>
             <article class="card metric"><span>Критично</span><strong id="wbCriticalCard">—</strong></article>
-            <article class="card metric"><span>План заказов / день</span><strong id="wbPlanOrdersCard">—</strong></article>
-            <article class="card metric"><span>Факт заказов / день</span><strong id="wbFactOrdersCard">—</strong></article>
-            <article class="card metric"><span>Отклонение</span><strong id="wbDeltaOrdersCard">—</strong></article>
+            <article class="card metric"><span>План / день</span><strong id="wbPlanOrdersCard">—</strong></article>
+            <article class="card metric"><span>Факт / день</span><strong id="wbFactOrdersCard">—</strong></article>
+            <article class="card metric delta-card"><span>Отклонение</span><strong id="wbDeltaOrdersCard">—</strong></article>
             <article class="card metric"><span>План маржи / день</span><strong id="wbPlanMarginCard">—</strong></article>
-            <article class="card metric"><span>Нужно допоставить</span><strong id="wbSupplyCard">—</strong></article>
+            <article class="card metric"><span>К допоставке</span><strong id="wbSupplyCard">—</strong></article>
+          </div>
+
+          <div class="insights-grid">
+            <article class="card chart-card">
+              <div class="section-head">
+                <div>
+                  <h3>Темп к плану</h3>
+                  <p>Пакет на выбранную дату.</p>
+                </div>
+              </div>
+              <div id="wbTrendChart" class="trend-chart"></div>
+              <p class="chart-caption" id="wbTrendCaption">—</p>
+            </article>
+
+            <article class="card deviation-card">
+              <div class="section-head">
+                <div>
+                  <h3>Топ-5 отклонений</h3>
+                  <p>Отдельно от дневного пакета.</p>
+                </div>
+              </div>
+              <div id="wbDeviationList" class="deviation-list"></div>
+            </article>
           </div>
 
           <div class="toolbar">
@@ -128,18 +130,16 @@
 
           <p class="subnote" id="wbPlanNote">Проверяю плановые метрики…</p>
 
-          <div class="table-wrap">
-            <table class="data-table">
+          <div class="table-wrap modern-table-wrap">
+            <table class="data-table modern-table">
               <thead>
                 <tr>
                   <th>Приоритет</th>
                   <th>Артикул</th>
-                  <th>Товар</th>
-                  <th>Что сделать</th>
-                  <th>Почему в фокусе</th>
+                  <th>Задача</th>
                   <th>План / факт</th>
                   <th>Статус</th>
-                  <th>Комментарий менеджера</th>
+                  <th>Комментарий</th>
                 </tr>
               </thead>
               <tbody id="wbArticlesBody"></tbody>
@@ -149,11 +149,11 @@
           <div class="notes-grid">
             <label class="field">
               <span>Комментарий по дню</span>
-              <textarea id="wbDayComment" rows="3" placeholder="Что важно донести по пакету WB"></textarea>
+              <textarea id="wbDayComment" rows="3" placeholder="Итог по пакету WB"></textarea>
             </label>
             <label class="field">
               <span>Нужна помощь</span>
-              <textarea id="wbNeedHelp" rows="3" placeholder="Что требует подключения руководителя или поставок"></textarea>
+              <textarea id="wbNeedHelp" rows="3" placeholder="Что надо подключить с твоей стороны"></textarea>
             </label>
           </div>
         </div>
@@ -161,15 +161,15 @@
 
       <section class="tab-panel" id="tab-ozon">
         <div class="panel">
-          <div class="panel-head">
+          <div class="panel-head compact-head">
             <div>
               <h2>Ozon · Ирина Паламарук</h2>
-              <p>Здесь остаются только статусы и комментарии по задачам. Плановые и фактические показатели по артикулам подгружаются автоматически.</p>
+              <p>План/факт считаются автоматически. Менеджер отмечает только ход работы.</p>
             </div>
             <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="ozonSaveBtn">Сохранить черновик</button>
-              <button type="button" class="btn btn-ghost" id="ozonExportBtn">Экспорт JSON</button>
-              <button type="button" class="btn btn-primary" id="ozonSubmitBtn">Сдать пакет Ozon</button>
+              <button type="button" class="btn btn-ghost" id="ozonSaveBtn">Сохранить</button>
+              <button type="button" class="btn btn-ghost" id="ozonExportBtn">Экспорт</button>
+              <button type="button" class="btn btn-primary" id="ozonSubmitBtn">Сдать Ozon</button>
             </div>
           </div>
 
@@ -180,15 +180,38 @@
             <span class="badge" id="ozonSourceBadge">Источник: загрузка…</span>
           </div>
 
-          <div class="cards cards-8">
-            <article class="card metric"><span>Текущий пакет</span><strong id="ozonPackCard">—</strong></article>
-            <article class="card metric"><span>Артикулов</span><strong id="ozonCountCard">—</strong></article>
+          <div class="cards cards-8 compact-cards">
+            <article class="card metric"><span>Пакет</span><strong id="ozonPackCard">—</strong></article>
+            <article class="card metric"><span>Артикулы</span><strong id="ozonCountCard">—</strong></article>
             <article class="card metric"><span>Критично</span><strong id="ozonCriticalCard">—</strong></article>
-            <article class="card metric"><span>План заказов / день</span><strong id="ozonPlanOrdersCard">—</strong></article>
-            <article class="card metric"><span>Факт заказов / день</span><strong id="ozonFactOrdersCard">—</strong></article>
-            <article class="card metric"><span>Отклонение</span><strong id="ozonDeltaOrdersCard">—</strong></article>
+            <article class="card metric"><span>План / день</span><strong id="ozonPlanOrdersCard">—</strong></article>
+            <article class="card metric"><span>Факт / день</span><strong id="ozonFactOrdersCard">—</strong></article>
+            <article class="card metric delta-card"><span>Отклонение</span><strong id="ozonDeltaOrdersCard">—</strong></article>
             <article class="card metric"><span>План маржи / день</span><strong id="ozonPlanMarginCard">—</strong></article>
-            <article class="card metric"><span>Нужно допоставить</span><strong id="ozonSupplyCard">—</strong></article>
+            <article class="card metric"><span>К допоставке</span><strong id="ozonSupplyCard">—</strong></article>
+          </div>
+
+          <div class="insights-grid">
+            <article class="card chart-card">
+              <div class="section-head">
+                <div>
+                  <h3>Темп к плану</h3>
+                  <p>Пакет на выбранную дату.</p>
+                </div>
+              </div>
+              <div id="ozonTrendChart" class="trend-chart"></div>
+              <p class="chart-caption" id="ozonTrendCaption">—</p>
+            </article>
+
+            <article class="card deviation-card">
+              <div class="section-head">
+                <div>
+                  <h3>Топ-5 отклонений</h3>
+                  <p>Отдельно от дневного пакета.</p>
+                </div>
+              </div>
+              <div id="ozonDeviationList" class="deviation-list"></div>
+            </article>
           </div>
 
           <div class="toolbar">
@@ -226,18 +249,16 @@
 
           <p class="subnote" id="ozonPlanNote">Проверяю плановые метрики…</p>
 
-          <div class="table-wrap">
-            <table class="data-table">
+          <div class="table-wrap modern-table-wrap">
+            <table class="data-table modern-table">
               <thead>
                 <tr>
                   <th>Приоритет</th>
                   <th>Артикул</th>
-                  <th>Товар</th>
-                  <th>Что сделать</th>
-                  <th>Почему в фокусе</th>
+                  <th>Задача</th>
                   <th>План / факт</th>
                   <th>Статус</th>
-                  <th>Комментарий менеджера</th>
+                  <th>Комментарий</th>
                 </tr>
               </thead>
               <tbody id="ozonArticlesBody"></tbody>
@@ -247,11 +268,11 @@
           <div class="notes-grid">
             <label class="field">
               <span>Комментарий по дню</span>
-              <textarea id="ozonDayComment" rows="3" placeholder="Что важно донести по пакету Ozon"></textarea>
+              <textarea id="ozonDayComment" rows="3" placeholder="Итог по пакету Ozon"></textarea>
             </label>
             <label class="field">
               <span>Нужна помощь</span>
-              <textarea id="ozonNeedHelp" rows="3" placeholder="Что требует подключения руководителя или поставок"></textarea>
+              <textarea id="ozonNeedHelp" rows="3" placeholder="Что надо подключить с твоей стороны"></textarea>
             </label>
           </div>
         </div>
@@ -259,15 +280,15 @@
 
       <section class="tab-panel" id="tab-supplies">
         <div class="panel">
-          <div class="panel-head">
+          <div class="panel-head compact-head">
             <div>
               <h2>Поставки и кластера</h2>
-              <p>Координатор работает уже не “на глаз”, а по строкам кластеров: видно спрос, остаток, оборачиваемость, что в поставке, в производстве и в закупке.</p>
+              <p>Координатор ведёт остатки, оборачиваемость и план отгрузки.</p>
             </div>
             <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="suppliesSaveBtn">Сохранить черновик</button>
-              <button type="button" class="btn btn-ghost" id="suppliesExportBtn">Экспорт JSON</button>
-              <button type="button" class="btn btn-primary" id="suppliesSubmitBtn">Сдать форму поставок</button>
+              <button type="button" class="btn btn-ghost" id="suppliesSaveBtn">Сохранить</button>
+              <button type="button" class="btn btn-ghost" id="suppliesExportBtn">Экспорт</button>
+              <button type="button" class="btn btn-primary" id="suppliesSubmitBtn">Сдать поставки</button>
             </div>
           </div>
 
@@ -284,7 +305,7 @@
               <select id="suppliesArticleSelect"></select>
             </label>
             <label class="field compact">
-              <span>Целевое покрытие, дней</span>
+              <span>Покрытие, дней</span>
               <input type="number" id="suppliesTargetDays" min="7" max="60" step="1" value="21" />
             </label>
             <label class="field compact">
@@ -293,30 +314,30 @@
             </label>
           </div>
 
-          <div class="cards cards-6">
+          <div class="cards cards-6 compact-cards">
             <article class="card metric"><span>Товар</span><strong id="suppliesTitleCard">—</strong></article>
             <article class="card metric"><span>Осн. склад</span><strong id="suppliesMainStockCard">—</strong></article>
-            <article class="card metric"><span>Остаток на МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
+            <article class="card metric"><span>На МП</span><strong id="suppliesPlatformStockCard">—</strong></article>
             <article class="card metric"><span>Спрос / день</span><strong id="suppliesDemandCard">—</strong></article>
             <article class="card metric"><span>Рекоменд. отгрузка</span><strong id="suppliesRecommendedCard">—</strong></article>
             <article class="card metric"><span>Кластеров</span><strong id="suppliesRowsCard">—</strong></article>
           </div>
 
-          <p class="subnote" id="suppliesHint">Выбери площадку и артикул — сайт подтянет строки кластеров и рассчитает потребность.</p>
+          <p class="subnote" id="suppliesHint">Выбери площадку и артикул.</p>
 
-          <div class="table-wrap">
-            <table class="data-table">
+          <div class="table-wrap modern-table-wrap">
+            <table class="data-table modern-table">
               <thead>
                 <tr>
                   <th>Кластер / склад</th>
                   <th>Спрос 7д</th>
                   <th>Спрос / день</th>
-                  <th>Текущий остаток</th>
+                  <th>Остаток</th>
                   <th>Оборачиваемость</th>
                   <th>В поставке</th>
                   <th>В производстве</th>
                   <th>В закупке</th>
-                  <th>Нужно отправить</th>
+                  <th>Нужно</th>
                   <th>План отгрузки</th>
                   <th>ETA</th>
                   <th>Статус</th>
@@ -331,13 +352,13 @@
 
       <section class="tab-panel" id="tab-leader">
         <div class="panel">
-          <div class="panel-head">
+          <div class="panel-head compact-head">
             <div>
               <h2>Руководитель</h2>
-              <p>Здесь видно, кто что сдал, с какой площадки, на какую дату и что именно было внутри. Пока Apps Script не подключён — видимость ограничена этим браузером и экспортом JSON.</p>
+              <p>Журнал сдачи пакетов и поставок.</p>
             </div>
             <div class="panel-actions">
-              <button type="button" class="btn btn-ghost" id="leaderRefreshBtn">Обновить журнал</button>
+              <button type="button" class="btn btn-ghost" id="leaderRefreshBtn">Обновить</button>
               <button type="button" class="btn btn-ghost" id="leaderExportAllBtn">Экспорт всех данных</button>
               <button type="button" class="btn btn-ghost hidden" id="openSheetBtn">Открыть Google Sheet</button>
               <label class="btn btn-secondary btn-file">
@@ -362,9 +383,7 @@
             </label>
             <label class="field compact">
               <span>Кто</span>
-              <select id="leaderManagerFilter">
-                <option value="all">Все</option>
-              </select>
+              <select id="leaderManagerFilter"><option value="all">Все</option></select>
             </label>
             <label class="field compact">
               <span>Источник</span>
@@ -376,16 +395,16 @@
             </label>
           </div>
 
-          <div class="cards cards-4">
+          <div class="cards cards-4 compact-cards">
             <article class="card metric"><span>Записей</span><strong id="leaderTotalCard">—</strong></article>
-            <article class="card metric"><span>Пакеты менеджеров</span><strong id="leaderManagerCard">—</strong></article>
-            <article class="card metric"><span>Формы поставок</span><strong id="leaderClusterCard">—</strong></article>
+            <article class="card metric"><span>Пакеты</span><strong id="leaderManagerCard">—</strong></article>
+            <article class="card metric"><span>Поставки</span><strong id="leaderClusterCard">—</strong></article>
             <article class="card metric"><span>Есть блокеры</span><strong id="leaderIssuesCard">—</strong></article>
           </div>
 
           <div class="two-col">
-            <div class="table-wrap">
-              <table class="data-table leader-table">
+            <div class="table-wrap modern-table-wrap">
+              <table class="data-table leader-table modern-table">
                 <thead>
                   <tr>
                     <th>Когда</th>
@@ -402,7 +421,7 @@
 
             <aside class="details-panel" id="leaderDetails">
               <h3>Детали записи</h3>
-              <p class="muted">Выбери строку в журнале слева — здесь появится содержимое пакета или формы поставок.</p>
+              <p class="muted">Выбери строку слева.</p>
             </aside>
           </div>
         </div>
