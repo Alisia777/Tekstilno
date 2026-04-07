@@ -19,11 +19,11 @@
   --radius-md: 16px;
   --radius-sm: 12px;
   --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --w-art: 220px;
-  --w-name: 240px;
-  --w-pri: 120px;
-  --w-plan: 120px;
-  --w-main: 120px;
+  --w-art: 190px;
+  --w-name: 220px;
+  --w-pri: 110px;
+  --w-plan: 110px;
+  --w-main: 110px;
   --left-2: calc(var(--w-art));
   --left-3: calc(var(--w-art) + var(--w-name));
   --left-4: calc(var(--w-art) + var(--w-name) + var(--w-pri));
@@ -42,9 +42,10 @@ button, input, select, textarea { font: inherit; }
 a { color: inherit; text-decoration: none; }
 
 .nina-page {
-  max-width: 2480px;
-  margin: 0 auto;
-  padding: 24px 18px 40px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 14px 14px 30px;
 }
 
 .hero,
@@ -72,13 +73,13 @@ a { color: inherit; text-decoration: none; }
 }
 .hero-copy h1 {
   margin: 8px 0 10px;
-  font-size: 38px;
+  font-size: 32px;
   line-height: 1.05;
   letter-spacing: -.03em;
 }
 .hero-copy p {
   margin: 0;
-  max-width: 1100px;
+  max-width: 980px;
   color: var(--muted);
   font-size: 16px;
   line-height: 1.58;
@@ -204,10 +205,10 @@ a { color: inherit; text-decoration: none; }
 .wide-control { width: 210px; }
 
 .cards {
-  margin-top: 18px;
+  margin-top: 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
 }
 .card { padding: 18px 18px 16px; }
 .metric span {
@@ -232,9 +233,9 @@ a { color: inherit; text-decoration: none; }
 
 .top-strip {
   display: grid;
-  grid-template-columns: 1.3fr .9fr;
-  gap: 18px;
-  margin-bottom: 18px;
+  grid-template-columns: 1.2fr .8fr;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 .panel {
@@ -450,22 +451,27 @@ a { color: inherit; text-decoration: none; }
   padding-left: 2px;
 }
 
+.matrix-fullbleed {
+  width: calc(100vw - 28px);
+  margin-left: calc(50% - 50vw + 14px);
+}
+
 .matrix-wrap {
   overflow: auto;
   border: 1px solid #e2e9f6;
   border-radius: 16px;
   background: #fff;
-  max-height: calc(100vh - 360px);
+  max-height: calc(100vh - 280px);
 }
 .matrix-table {
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 3000px;
+  min-width: 3400px;
   width: max-content;
 }
 .matrix-table th,
 .matrix-table td {
-  padding: 8px 10px;
+  padding: 8px 9px;
   border-right: 1px solid #e8eef8;
   border-bottom: 1px solid #eef3fa;
   font-size: 12px;
@@ -482,26 +488,31 @@ a { color: inherit; text-decoration: none; }
 }
 .matrix-table thead tr:first-child th {
   top: 0;
-  z-index: 4;
+  z-index: 6;
 }
 .matrix-table thead tr:nth-child(2) th {
-  top: 86px;
+  top: 44px;
+  z-index: 5;
+}
+.matrix-table thead tr:nth-child(3) th {
+  top: 96px;
+  z-index: 4;
 }
 .matrix-table tbody tr:hover td {
   background: #fcfdff;
 }
 .group-head {
-  background: #f7faff !important;
+  background: #f2f7ff !important;
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: .05em;
 }
 .cluster-group {
-  min-width: 480px;
+  min-width: 540px;
 }
 .metric-col {
-  min-width: 82px;
+  min-width: 84px;
   text-align: right;
 }
 .metric-col.col-comment,
@@ -595,8 +606,8 @@ a { color: inherit; text-decoration: none; }
   font-size: 12px;
 }
 .inline-input { text-align: right; }
-.inline-date { min-width: 120px; }
-.inline-text { min-width: 150px; }
+.inline-date { min-width: 132px; }
+.inline-text { min-width: 180px; }
 .inline-input:focus,
 .inline-date:focus,
 .inline-text:focus {
@@ -728,3 +739,19 @@ a { color: inherit; text-decoration: none; }
   .field.compact, .wide-control { width: 100%; }
   .field-grid-4 { grid-template-columns: 1fr; }
 }
+
+.btn-primary-soft { background: #edf4ff; color: var(--blue); border-color: #cfe0ff; }
+
+.group-subhead, .warehouse-head { background: #f9fbff !important; color: var(--muted); font-size: 11px; }
+.warehouse-head { min-width: 540px; }
+.warehouse-head .warehouse-list { justify-content: flex-start; }
+.warehouse-head .warehouse-note { display: inline-flex; }
+
+@media (max-width: 1080px) {
+  .matrix-fullbleed { width: calc(100vw - 18px); margin-left: calc(50% - 50vw + 9px); }
+  .matrix-wrap { max-height: calc(100vh - 220px); }
+}
+
+.warehouse-head { padding: 6px 8px !important; }
+.warehouse-head .warehouse-list { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding-bottom: 2px; }
+.warehouse-chip { white-space: nowrap; }

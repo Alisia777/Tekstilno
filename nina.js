@@ -3,11 +3,11 @@ const ninaState = {
   data: null,
   platform: "WB",
   page: "matrix",
-  targetDays: loadStorage("tekstilno-nina-target-days-v15", { WB: 21, Ozon: 21 }),
-  turnoverMode: loadStorage("tekstilno-nina-turnover-mode-v15", { WB: 14, Ozon: 14 }),
+  targetDays: loadStorage("tekstilno-nina-target-days-v16", { WB: 21, Ozon: 21 }),
+  turnoverMode: loadStorage("tekstilno-nina-turnover-mode-v16", { WB: 14, Ozon: 14 }),
   filters: { search: "", showMode: "all", limit: 9999, sort: "need" },
-  manualInputs: loadStorage("tekstilno-nina-manual-inputs-v15", {}),
-  orderRequests: loadStorage("tekstilno-nina-order-requests-v15", []),
+  manualInputs: loadStorage("tekstilno-nina-manual-inputs-v16", {}),
+  orderRequests: loadStorage("tekstilno-nina-order-requests-v16", []),
   selectedArticle: null
 };
 
@@ -26,7 +26,7 @@ async function initNina() {
 
 function cacheElements() {
   [
-    "exportExcelBtn", "exportAllBtn", "importAllInput", "reportMonthBadge", "targetDaysInput",
+    "exportExcelBtn", "exportNeedBtn", "exportAllBtn", "importAllInput", "reportMonthBadge", "targetDaysInput",
     "sumArticles", "sumClusters", "sumPlanMonth", "sumDaily", "sumDailyCaption", "sumStock", "sumMainStock", "sumNeed", "sumNeedCaption",
     "searchInput", "showModeSelect", "rowLimitSelect", "sortSelect", "matrixMeta", "matrixHead", "matrixBody", "matrixWrap",
     "selectedSubtitle", "selectedArticleCard", "topDeficitsList", "topDeficitsCaption", "clusterGuide", "formulaClusters",
@@ -68,6 +68,7 @@ function bindEvents() {
   });
 
   ninaEls.exportExcelBtn.addEventListener("click", exportExcelWorkbook);
+  ninaEls.exportNeedBtn.addEventListener("click", exportNeedWorkbook);
   ninaEls.exportAllBtn.addEventListener("click", exportAllJson);
   ninaEls.importAllInput.addEventListener("change", importAllJson);
 }
@@ -125,19 +126,19 @@ function handleTargetDaysChange() {
 }
 
 function persistTargetDays() {
-  localStorage.setItem("tekstilno-nina-target-days-v15", JSON.stringify(ninaState.targetDays));
+  localStorage.setItem("tekstilno-nina-target-days-v16", JSON.stringify(ninaState.targetDays));
 }
 
 function persistTurnoverMode() {
-  localStorage.setItem("tekstilno-nina-turnover-mode-v15", JSON.stringify(ninaState.turnoverMode));
+  localStorage.setItem("tekstilno-nina-turnover-mode-v16", JSON.stringify(ninaState.turnoverMode));
 }
 
 function persistManualInputs() {
-  localStorage.setItem("tekstilno-nina-manual-inputs-v15", JSON.stringify(ninaState.manualInputs));
+  localStorage.setItem("tekstilno-nina-manual-inputs-v16", JSON.stringify(ninaState.manualInputs));
 }
 
 function persistOrderRequests() {
-  localStorage.setItem("tekstilno-nina-order-requests-v15", JSON.stringify(ninaState.orderRequests));
+  localStorage.setItem("tekstilno-nina-order-requests-v16", JSON.stringify(ninaState.orderRequests));
 }
 
 function updateToggleUi() {
@@ -350,7 +351,7 @@ function renderSummary() {
   ninaEls.sumMainStock.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.mainWarehouseStock || 0), 0));
   ninaEls.sumNeed.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalNeedModeCalc || 0), 0));
   ninaEls.sumNeedCaption.textContent = `Нужно к пополнению (${getCurrentTurnoverMode()} дн)`;
-  ninaEls.topDeficitsCaption.textContent = `Топ просадок на горизонте ${getCurrentTurnoverMode()} дн.`;
+  ninaEls.topDeficitsCaption.textContent = `Топ просадок на горизонте ${getCurrentTurnoverMode()} дн. Потребность можно выгрузить отдельно.`;
 }
 
 function getFilteredRows() {
@@ -387,7 +388,7 @@ function renderMatrix() {
   const platformData = getPlatformData();
   const clusters = platformData.clusters || [];
   const rows = getFilteredRows();
-  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. В матрице сразу вносятся: в пути, производство, закупка, дата прихода и комментарий. Оборачиваемость и потребность считаются в режиме ${getCurrentTurnoverMode()} дн.`;
+  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. Шапка таблицы: кластеры → склады → показатели. Вносить можно прямо в ячейках, а потребность выгружать кнопкой «Скачать потребность». Горизонт расчета: ${getCurrentTurnoverMode()} дн.`;
   ninaEls.matrixHead.innerHTML = buildMatrixHead(clusters);
   if (!rows.length) {
     ninaEls.matrixBody.innerHTML = `<tr><td colspan="${5 + 9 + clusters.length * 12}">По текущим фильтрам ничего не найдено.</td></tr>`;
@@ -401,34 +402,35 @@ function buildMatrixHead(clusters) {
   const totalLabels = ["7д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Нужно"];
   const clusterLabels = ["7д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Нужно", "Дата прихода", "Коммент", "Заявка"];
   const top = [
-    `<th class="sticky-col col-article" rowspan="2">Артикул / размер</th>`,
-    `<th class="sticky-col-2 col-name" rowspan="2">Товар</th>`,
-    `<th class="sticky-col-3 col-priority" rowspan="2">Приоритет</th>`,
-    `<th class="sticky-col-4 col-planmonth" rowspan="2">План мес., шт</th>`,
-    `<th class="sticky-col-5 col-main" rowspan="2">Осн. склад</th>`,
+    `<th class="sticky-col col-article" rowspan="3">Артикул / размер</th>`,
+    `<th class="sticky-col-2 col-name" rowspan="3">Товар</th>`,
+    `<th class="sticky-col-3 col-priority" rowspan="3">Приоритет</th>`,
+    `<th class="sticky-col-4 col-planmonth" rowspan="3">План мес., шт</th>`,
+    `<th class="sticky-col-5 col-main" rowspan="3">Осн. склад</th>`,
     `<th class="group-head" colspan="${totalLabels.length}">ИТОГО</th>`
   ];
   clusters.forEach((cluster) => {
-    top.push(`<th class="group-head cluster-group" colspan="${clusterLabels.length}">${buildClusterHead(cluster, warehouseMap)}</th>`);
+    top.push(`<th class="group-head cluster-group" colspan="${clusterLabels.length}">${escapeHtml(cluster)}</th>`);
   });
-  return `<tr>${top.join("")}</tr><tr>${totalLabels.map((label) => `<th class="metric-col">${label}</th>`).join("")}${clusters.map(() => clusterLabels.map((label) => `<th class="metric-col ${label === "Коммент" ? "col-comment" : ""} ${label === "Заявка" ? "col-order" : ""}">${label}</th>`).join("")).join("")}</tr>`;
+  const middle = [
+    `<th class="group-subhead" colspan="${totalLabels.length}">Сумма по всем кластерам</th>`
+  ];
+  clusters.forEach((cluster) => {
+    middle.push(`<th class="warehouse-head" colspan="${clusterLabels.length}">${buildClusterWarehouses(cluster, warehouseMap)}</th>`);
+  });
+  const bottom = [
+    ...totalLabels.map((label) => `<th class="metric-col">${label}</th>`),
+    ...clusters.flatMap(() => clusterLabels.map((label) => `<th class="metric-col ${label === "Коммент" ? "col-comment" : ""} ${label === "Заявка" ? "col-order" : ""}">${label}</th>`))
+  ];
+  return `<tr>${top.join("")}</tr><tr>${middle.join("")}</tr><tr>${bottom.join("")}</tr>`;
 }
 
-function buildClusterHead(cluster, warehouseMap) {
+function buildClusterWarehouses(cluster, warehouseMap) {
   const warehouses = Array.from(warehouseMap.get(cluster) || []);
-  const shown = warehouses.slice(0, 6);
-  const more = warehouses.length - shown.length;
-  return `
-    <div class="cluster-head">
-      <span class="cluster-title">${escapeHtml(cluster)}</span>
-      <div class="warehouse-list">
-        ${shown.length
-          ? shown.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")
-          : `<span class="warehouse-note">в исходнике без разбивки по складам</span>`}
-        ${more > 0 ? `<span class="warehouse-note">+${more}</span>` : ""}
-      </div>
-    </div>
-  `;
+  if (!warehouses.length) {
+    return `<div class="warehouse-list"><span class="warehouse-note">по текущему источнику строка агрегирована без списка складов</span></div>`;
+  }
+  return `<div class="warehouse-list">${warehouses.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")}</div>`;
 }
 
 function buildMatrixRow(row, clusters) {
@@ -851,6 +853,8 @@ function exportExcelWorkbook() {
   const sheets = [
     buildMatrixSheet("WB"),
     buildMatrixSheet("Ozon"),
+    buildNeedSheet("WB"),
+    buildNeedSheet("Ozon"),
     buildManualSheet(),
     buildOrdersSheet()
   ];
@@ -955,6 +959,52 @@ function buildOrdersSheet() {
       ]);
     });
   return { name: "Заявки", rows };
+}
+
+function buildNeedSheet(platform = ninaState.platform) {
+  const warehouseMap = getClusterWarehouseMap(platform);
+  const rows = [[
+    "Платформа", "Артикул", "Товар", "Приоритет", "План месяца, шт", `Спрос/день (${getTurnoverModeForPlatform(platform)}д)`,
+    "Кластер", "Склады", "Запас", "В пути", "Производство", "Закупка", "Доступно", `Оборачиваемость (${getTurnoverModeForPlatform(platform)}д)`,
+    `Нужно (${getTurnoverModeForPlatform(platform)}д)`, "Целевые дни", "Дата прихода", "Комментарий"
+  ]];
+  getAllComputedRows(platform)
+    .sort((a, b) => (b.totalNeedModeCalc || 0) - (a.totalNeedModeCalc || 0))
+    .forEach((row) => {
+      row.clusterMetricsCalc
+        .filter((metric) => Number(metric.recommendedQtyCalc || 0) > 0)
+        .forEach((metric) => {
+          rows.push([
+            platform,
+            row.sellerArticle,
+            row.name || "",
+            row.priorityLabel || "",
+            row.monthPlanUnitsTotal || 0,
+            row.totalActiveDemand || 0,
+            metric.cluster,
+            Array.from(warehouseMap.get(metric.cluster) || []).join(", "),
+            metric.stock || 0,
+            metric.inTransit || 0,
+            metric.production || 0,
+            metric.procurement || 0,
+            metric.available || 0,
+            metric.activeCoverage ?? "",
+            metric.recommendedQtyCalc || 0,
+            metric.targetDays || getTargetDaysForPlatform(platform),
+            metric.eta || "",
+            metric.comment || ""
+          ]);
+        });
+    });
+  return { name: `${platform}_потребность`, rows };
+}
+
+function exportNeedWorkbook() {
+  const sheet = buildNeedSheet(ninaState.platform);
+  const xml = buildWorkbookXml([sheet]);
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(xml, `tekstilno-${ninaState.platform.toLowerCase()}-need-${stamp}.xls`, "application/vnd.ms-excel");
+  showToast(`Выгрузка потребности ${ninaState.platform} скачана.`);
 }
 
 function buildWorkbookXml(sheets) {

@@ -15,11 +15,12 @@
       <div class="hero-copy">
         <span class="eyebrow">Текстильно · Нина</span>
         <h1>Матрица кластеров и пополнения WB / Ozon</h1>
-        <p>Главный режим — одна широкая матрица. Слева все артикула, сверху кластеры и склады, внутри сразу вносятся значения по пути, производству, закупке, дате прихода и комментарию. Навигация упрощена: матрица, заявки и формулы.</p>
+        <p>Главный экран — широкая матрица на весь экран. Слева артикула, сверху кластеры, под ними склады, внутри ячейки для ввода, а потребность можно сразу выгружать для Вартана в Excel.</p>
       </div>
       <div class="hero-actions">
         <a class="btn btn-ghost" href="index.html">← На главный экран</a>
         <button class="btn btn-primary" id="exportExcelBtn" type="button">Экспорт Excel</button>
+        <button class="btn btn-primary-soft" id="exportNeedBtn" type="button">Скачать потребность</button>
         <button class="btn btn-ghost" id="exportAllBtn" type="button">Резерв JSON</button>
         <label class="btn btn-ghost btn-file" for="importAllInput">Импорт JSON<input id="importAllInput" type="file" accept=".json" /></label>
       </div>
@@ -33,7 +34,7 @@
         </div>
         <div class="segmented" id="pageToggle">
           <button type="button" class="seg-btn active" data-page="matrix">Матрица</button>
-          <button type="button" class="seg-btn" data-page="orders">Заявки</button>
+          <button type="button" class="seg-btn" data-page="orders">Потребность / заявки</button>
           <button type="button" class="seg-btn" data-page="formula">Как считаем</button>
         </div>
       </div>
@@ -157,17 +158,19 @@
           </div>
         </div>
 
-        <details class="panel cluster-guide-panel" open>
+        <details class="panel cluster-guide-panel">
           <summary>Состав кластеров и складов</summary>
           <div id="clusterGuide" class="cluster-guide-grid"></div>
         </details>
 
         <div class="table-meta" id="matrixMeta">Загружаю матрицу…</div>
+        <div class="matrix-fullbleed">
         <div class="matrix-wrap" id="matrixWrap">
           <table class="matrix-table">
             <thead id="matrixHead"></thead>
             <tbody id="matrixBody"></tbody>
           </table>
+        </div>
         </div>
       </section>
 
@@ -176,8 +179,8 @@
           <article class="panel order-form-panel">
             <div class="panel-head">
               <div>
-                <h2>Заявка на товар</h2>
-                <p>Открывается из матрицы по кнопке «В заявку» или заполняется руками. Подходит для Вартана и контроля пополнений.</p>
+                <h2>Потребность и заявка на товар</h2>
+                <p>Сверху — компактная форма заявки. Ниже в Excel можно выгрузить всю потребность по текущей площадке, чтобы Вартан сразу видел, что и куда нужно отгружать.</p>
               </div>
             </div>
             <form id="orderForm" class="stack-form">
@@ -239,8 +242,8 @@
           <article class="panel order-table-panel">
             <div class="panel-head">
               <div>
-                <h2>Журнал заявок</h2>
-                <p>Этот журнал тоже уходит в Excel-выгрузку. Вартан сможет читать всё в одном файле.</p>
+                <h2>Журнал заявок и внесенных решений</h2>
+                <p>И журнал, и вся потребность по кластерам уходят в Excel-выгрузку.</p>
               </div>
             </div>
             <div class="list-wrap">
