@@ -14,9 +14,12 @@
       <div>
         <span class="eyebrow">Текстильно</span>
         <h1 id="heroTitle">Контроль задач, план/факт и поставки</h1>
-        <p class="lead">Менеджеры отмечают только статус и комментарий. План, факт и отклонения сайт показывает сам.</p>
-        <div class="panel-actions" style="margin-top: 12px;">
-          <a href="nina.html" class="btn btn-primary">Нина · матрица кластеров и пополнения</a>
+        <p class="lead">Главный экран теперь только для менеджеров и руководителя. Поставки и кластерная матрица Нины открываются на отдельной полноэкранной странице, чтобы не было узкого блока и путаницы.</p>
+        <div class="panel-actions hero-links" style="margin-top: 12px;">
+          <button type="button" class="btn btn-ghost" data-open-tab="wb">WB</button>
+          <button type="button" class="btn btn-ghost" data-open-tab="ozon">Ozon</button>
+          <button type="button" class="btn btn-ghost" data-open-tab="leader">Руководитель</button>
+          <a href="nina.html" class="btn btn-primary">Нина · матрица кластеров</a>
         </div>
       </div>
       <div class="topbar-side">
@@ -38,7 +41,7 @@
     <nav class="tabs">
       <button type="button" class="tab-btn active" data-tab="wb">WB · Анастасия</button>
       <button type="button" class="tab-btn" data-tab="ozon">Ozon · Ирина Паламарук</button>
-      <button type="button" class="tab-btn" data-tab="supplies">Поставки</button>
+      <button type="button" class="tab-btn" data-tab="supplies">Поставки ↗</button>
       <button type="button" class="tab-btn" data-tab="leader">Руководитель</button>
     </nav>
 
@@ -308,13 +311,21 @@
           <div class="panel-head compact-head">
             <div>
               <h2>Поставки и кластера</h2>
-              <p>Координатор ведёт остатки, оборачиваемость и план отгрузки.</p>
+              <p>Эта вкладка больше не используется как рабочая матрица. Для кластера и пополнения открывай полноэкранную страницу Нины.</p>
             </div>
             <div class="panel-actions">
               <button type="button" class="btn btn-ghost" id="suppliesSaveBtn">Сохранить</button>
               <button type="button" class="btn btn-ghost" id="suppliesExportBtn">Экспорт</button>
               <button type="button" class="btn btn-primary" id="suppliesSubmitBtn">Сдать поставки</button>
             </div>
+          </div>
+
+          <div class="supply-redirect-callout">
+            <div>
+              <strong>Поставки и кластеры вынесены отдельно.</strong>
+              <p>Полноэкранная матрица Нины показывает кластеры сверху, склады внутри кластера, потребность к пополнению и экспорт для Вартана.</p>
+            </div>
+            <a class="btn btn-primary" href="nina.html">Открыть матрицу Нины</a>
           </div>
 
           <div class="toolbar">

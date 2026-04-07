@@ -298,6 +298,10 @@ function renderAll() {
 }
 
 function switchTab(tab) {
+  if (tab === "supplies") {
+    window.location.href = "nina.html";
+    return;
+  }
   state.activeTab = tab;
   els.tabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tab));
   Object.entries(els.tabPanels).forEach(([key, panel]) => panel.classList.toggle("active", key === tab));
