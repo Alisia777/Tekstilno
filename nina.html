@@ -194,7 +194,7 @@
                   <select id="orderClusterSelect"></select>
                 </label>
                 <label class="field compact">
-                  <span>Реком.</span>
+                  <span>Реком. к заказу</span>
                   <input id="orderRecommendedInput" type="number" disabled />
                 </label>
                 <label class="field compact">
@@ -237,6 +237,32 @@
                 <button class="btn btn-ghost" id="resetOrderBtn" type="button">Очистить</button>
               </div>
             </form>
+
+            <div class="order-reco-panel">
+              <div class="panel-head order-subhead">
+                <div>
+                  <h3>Рекомендуемое к заказу по кластерам</h3>
+                  <p id="orderRecommendationMeta">Расчет идет по текущему горизонту 7 / 14 / 28 дней и продажам по кластерам.</p>
+                </div>
+              </div>
+              <div class="list-wrap">
+                <table class="simple-table">
+                  <thead>
+                    <tr>
+                      <th>Кластер</th>
+                      <th>Продажи 7д</th>
+                      <th>Продажи 14д</th>
+                      <th>Спрос / день</th>
+                      <th>Доступно</th>
+                      <th>Оборач.</th>
+                      <th>Реком. к заказу</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="orderRecommendationBody"></tbody>
+                </table>
+              </div>
+            </div>
           </article>
 
           <article class="panel order-table-panel">
@@ -254,6 +280,7 @@
                     <th>Платформа</th>
                     <th>Артикул</th>
                     <th>Кластер</th>
+                    <th>Реком.</th>
                     <th>Кол-во</th>
                     <th>Источник</th>
                     <th>Дата прихода</th>
@@ -273,7 +300,7 @@
             <h2>Как считаем 7 / 14 / 28 дней</h2>
             <ul>
               <li><strong>7 дн</strong> — оборачиваемость по фактическому среднему последних 7 дней.</li>
-              <li><strong>14 дн</strong> — сглаженный режим: берем максимум между фактом 7 дней и планом дня по месяцу.</li>
+              <li><strong>14 дн</strong> — сглаженный режим: берем максимум между фактом 7 дней и планом дня по месяцу. Колонка «Продажи 14д» показывает двухнедельный объем на базе текущего темпа продаж.</li>
               <li><strong>28 дн</strong> — стратегический режим: берем максимум между фактом и планом дня с учетом сезонности.</li>
             </ul>
             <p>Переключатель сверху меняет не только показатель оборачиваемости, но и расчет потребности к пополнению.</p>

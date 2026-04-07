@@ -755,3 +755,25 @@ a { color: inherit; text-decoration: none; }
 .warehouse-head { padding: 6px 8px !important; }
 .warehouse-head .warehouse-list { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding-bottom: 2px; }
 .warehouse-chip { white-space: nowrap; }
+
+
+.order-reco-panel {
+  margin-top: 16px;
+}
+.order-subhead {
+  margin-bottom: 10px;
+}
+.order-subhead h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.order-subhead p {
+  margin-top: 4px;
+}
+.reco-cluster-cell {
+  min-width: 220px;
+}
+.reco-cluster-cell strong {
+  display: block;
+  margin-bottom: 4px;
+}
