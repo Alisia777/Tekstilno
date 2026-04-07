@@ -1,13 +1,13 @@
-
 const ninaState = {
   config: window.APP_CONFIG || {},
   data: null,
   platform: "WB",
   page: "matrix",
-  targetDays: { WB: 21, Ozon: 21 },
+  targetDays: loadStorage("tekstilno-nina-target-days-v15", { WB: 21, Ozon: 21 }),
+  turnoverMode: loadStorage("tekstilno-nina-turnover-mode-v15", { WB: 14, Ozon: 14 }),
   filters: { search: "", showMode: "all", limit: 9999, sort: "need" },
-  manualInputs: loadStorage("tekstilno-nina-manual-inputs-v1", {}),
-  orderRequests: loadStorage("tekstilno-nina-order-requests-v1", []),
+  manualInputs: loadStorage("tekstilno-nina-manual-inputs-v15", {}),
+  orderRequests: loadStorage("tekstilno-nina-order-requests-v15", []),
   selectedArticle: null
 };
 
@@ -20,30 +20,26 @@ async function initNina() {
   cacheElements();
   bindEvents();
   await loadData();
-  syncTargetDaysUi();
+  syncUiState();
   renderAll();
 }
 
 function cacheElements() {
   [
-    "exportAllBtn","importAllInput","reportMonthBadge","targetDaysInput",
-    "sumArticles","sumClusters","sumDaily","sumStock","sumMainStock","sumNeed",
-    "searchInput","showModeSelect","rowLimitSelect","sortSelect","matrixMeta","matrixHead","matrixBody",
-    "selectedSubtitle","selectedArticleCard","quickInputForm","quickArticleSelect","quickClusterSelect",
-    "quickTransitInput","quickProductionInput","quickProcurementInput","quickTargetDaysInput","quickSeasonalityInput",
-    "quickCommentInput","quickClearBtn","stockBody","exportStockBtn",
-    "orderForm","orderArticleSelect","orderClusterSelect","orderRecommendedInput","orderQtyInput","orderSourceSelect",
-    "orderPrioritySelect","orderEtaInput","orderCommentInput","resetOrderBtn","ordersBody","topDeficitsList",
-    "inputsBody","exportInputsBtn","exportOrdersBtn","toast"
+    "exportExcelBtn", "exportAllBtn", "importAllInput", "reportMonthBadge", "targetDaysInput",
+    "sumArticles", "sumClusters", "sumPlanMonth", "sumDaily", "sumDailyCaption", "sumStock", "sumMainStock", "sumNeed", "sumNeedCaption",
+    "searchInput", "showModeSelect", "rowLimitSelect", "sortSelect", "matrixMeta", "matrixHead", "matrixBody", "matrixWrap",
+    "selectedSubtitle", "selectedArticleCard", "topDeficitsList", "topDeficitsCaption", "clusterGuide", "formulaClusters",
+    "orderForm", "orderArticleSelect", "orderClusterSelect", "orderRecommendedInput", "orderQtyInput", "orderSourceSelect",
+    "orderPrioritySelect", "orderEtaInput", "orderCommentInput", "resetOrderBtn", "ordersBody", "toast"
   ].forEach((id) => { ninaEls[id] = document.getElementById(id); });
 
   ninaEls.platformButtons = Array.from(document.querySelectorAll("[data-platform]"));
   ninaEls.pageButtons = Array.from(document.querySelectorAll("[data-page]"));
+  ninaEls.turnoverButtons = Array.from(document.querySelectorAll("[data-turnover-mode]"));
   ninaEls.pagePanels = {
     matrix: document.getElementById("page-matrix"),
-    stock: document.getElementById("page-stock"),
     orders: document.getElementById("page-orders"),
-    inputs: document.getElementById("page-inputs"),
     formula: document.getElementById("page-formula")
   };
 }
@@ -51,25 +47,27 @@ function cacheElements() {
 function bindEvents() {
   ninaEls.platformButtons.forEach((btn) => btn.addEventListener("click", () => switchPlatform(btn.dataset.platform)));
   ninaEls.pageButtons.forEach((btn) => btn.addEventListener("click", () => switchPage(btn.dataset.page)));
+  ninaEls.turnoverButtons.forEach((btn) => btn.addEventListener("click", () => switchTurnover(Number(btn.dataset.turnoverMode))));
+
   ninaEls.targetDaysInput.addEventListener("change", handleTargetDaysChange);
   ninaEls.searchInput.addEventListener("input", () => { ninaState.filters.search = ninaEls.searchInput.value.trim().toLowerCase(); renderMatrix(); });
   ninaEls.showModeSelect.addEventListener("change", () => { ninaState.filters.showMode = ninaEls.showModeSelect.value; renderMatrix(); });
-  ninaEls.rowLimitSelect.addEventListener("change", () => { ninaState.filters.limit = Number(ninaEls.rowLimitSelect.value || 50); renderMatrix(); });
+  ninaEls.rowLimitSelect.addEventListener("change", () => { ninaState.filters.limit = Number(ninaEls.rowLimitSelect.value || 9999); renderMatrix(); });
   ninaEls.sortSelect.addEventListener("change", () => { ninaState.filters.sort = ninaEls.sortSelect.value; renderMatrix(); });
 
-  ninaEls.quickInputForm.addEventListener("submit", saveQuickInput);
-  ninaEls.quickArticleSelect.addEventListener("change", () => { ninaState.selectedArticle = ninaEls.quickArticleSelect.value; populateQuickClusters(); renderSelectedCard(); });
-  ninaEls.quickClusterSelect.addEventListener("change", fillQuickInputForm);
-  ninaEls.quickClearBtn.addEventListener("click", clearQuickInput);
+  ninaEls.matrixBody.addEventListener("click", handleMatrixClick);
+  ninaEls.matrixBody.addEventListener("change", handleMatrixChange);
+  ninaEls.topDeficitsList.addEventListener("click", handleTopDeficitClick);
 
   ninaEls.orderForm.addEventListener("submit", saveOrderRequest);
   ninaEls.orderArticleSelect.addEventListener("change", () => populateOrderClusters());
   ninaEls.orderClusterSelect.addEventListener("change", fillOrderRecommendation);
-  ninaEls.resetOrderBtn.addEventListener("click", (e) => { e.preventDefault(); resetOrderForm(); });
+  ninaEls.resetOrderBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    resetOrderForm();
+  });
 
-  ninaEls.exportStockBtn.addEventListener("click", exportStockCsv);
-  ninaEls.exportOrdersBtn.addEventListener("click", exportOrdersCsv);
-  ninaEls.exportInputsBtn.addEventListener("click", exportInputsCsv);
+  ninaEls.exportExcelBtn.addEventListener("click", exportExcelWorkbook);
   ninaEls.exportAllBtn.addEventListener("click", exportAllJson);
   ninaEls.importAllInput.addEventListener("change", importAllJson);
 }
@@ -79,32 +77,24 @@ async function loadData() {
     const response = await fetch(versionedUrl("data/nina-cluster-dashboard.json"));
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     ninaState.data = await response.json();
-    ninaEls.reportMonthBadge.value = ninaState.data.reportMonth || "2026-04";
+    ninaEls.reportMonthBadge.value = ninaState.data.reportMonth || "—";
   } catch (error) {
     console.error(error);
     showToast(`Не удалось загрузить data/nina-cluster-dashboard.json: ${error.message}`);
   }
 }
 
-function renderAll() {
-  if (!ninaState.data) return;
-  updateToggleUi();
-  renderSummary();
-  populateArticleSelectors();
-  populateQuickClusters();
-  populateOrderClusters();
-  renderMatrix();
-  renderSelectedCard();
-  renderStockTable();
-  renderTopDeficits();
-  renderOrdersTable();
-  renderInputsTable();
+function syncUiState() {
+  ninaEls.targetDaysInput.value = getCurrentTargetDays();
 }
 
 function switchPlatform(platform) {
   ninaState.platform = platform;
-  ninaState.selectedArticle = null;
-  syncTargetDaysUi();
+  const rows = getPlatformData().rows;
+  if (!rows.find((row) => row.sellerArticle === ninaState.selectedArticle)) {
+    ninaState.selectedArticle = rows[0]?.sellerArticle || null;
+  }
+  syncUiState();
   renderAll();
 }
 
@@ -113,35 +103,65 @@ function switchPage(page) {
   updateToggleUi();
 }
 
-function updateToggleUi() {
-  ninaEls.platformButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.platform === ninaState.platform));
-  ninaEls.pageButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.page === ninaState.page));
-  Object.entries(ninaEls.pagePanels).forEach(([key, panel]) => panel.classList.toggle("active", key === ninaState.page));
+function switchTurnover(mode) {
+  ninaState.turnoverMode[ninaState.platform] = mode;
+  persistTurnoverMode();
+  renderSummary();
+  renderSelectedCard();
+  renderTopDeficits();
+  renderMatrix();
 }
 
 function handleTargetDaysChange() {
-  const value = clampNumber(Number(ninaEls.targetDaysInput.value || 21), 7, 60, 21);
+  const value = clampNumber(Number(ninaEls.targetDaysInput.value || 21), 7, 90, 21);
   ninaState.targetDays[ninaState.platform] = value;
+  persistTargetDays();
   ninaEls.targetDaysInput.value = value;
   renderSummary();
-  renderMatrix();
   renderSelectedCard();
-  renderStockTable();
   renderTopDeficits();
+  renderMatrix();
   fillOrderRecommendation();
 }
 
-function syncTargetDaysUi() {
-  ninaEls.targetDaysInput.value = ninaState.targetDays[ninaState.platform] || 21;
+function persistTargetDays() {
+  localStorage.setItem("tekstilno-nina-target-days-v15", JSON.stringify(ninaState.targetDays));
 }
 
-function getPlatformData() {
-  return ninaState.data?.platforms?.[ninaState.platform] || { clusters: [], rows: [], summary: {}, topDeficits: [] };
+function persistTurnoverMode() {
+  localStorage.setItem("tekstilno-nina-turnover-mode-v15", JSON.stringify(ninaState.turnoverMode));
 }
 
-function getRowMap() {
+function persistManualInputs() {
+  localStorage.setItem("tekstilno-nina-manual-inputs-v15", JSON.stringify(ninaState.manualInputs));
+}
+
+function persistOrderRequests() {
+  localStorage.setItem("tekstilno-nina-order-requests-v15", JSON.stringify(ninaState.orderRequests));
+}
+
+function updateToggleUi() {
+  ninaEls.platformButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.platform === ninaState.platform));
+  ninaEls.pageButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.page === ninaState.page));
+  ninaEls.turnoverButtons.forEach((btn) => btn.classList.toggle("active", Number(btn.dataset.turnoverMode) === getCurrentTurnoverMode()));
+  Object.entries(ninaEls.pagePanels).forEach(([key, panel]) => panel.classList.toggle("active", key === ninaState.page));
+}
+
+function getCurrentTargetDays() {
+  return ninaState.targetDays[ninaState.platform] || 21;
+}
+
+function getCurrentTurnoverMode() {
+  return Number(ninaState.turnoverMode[ninaState.platform] || 14);
+}
+
+function getPlatformData(platform = ninaState.platform) {
+  return ninaState.data?.platforms?.[platform] || { clusters: [], rows: [], summary: {}, topDeficits: [] };
+}
+
+function getRowMap(platform = ninaState.platform) {
   const map = new Map();
-  getPlatformData().rows.forEach((row) => map.set(row.sellerArticle, row));
+  getPlatformData(platform).rows.forEach((row) => map.set(row.sellerArticle, row));
   return map;
 }
 
@@ -155,90 +175,145 @@ function getManualEntry(platform, article, cluster) {
 
 function setManualEntry(platform, article, cluster, payload) {
   const key = getManualKey(platform, article, cluster);
-  if (!payload || Object.values(payload).every((v) => v === "" || v === 0 || v === null || v === undefined)) {
+  if (!payload || isManualPayloadEmpty(payload)) {
     delete ninaState.manualInputs[key];
   } else {
     ninaState.manualInputs[key] = payload;
   }
-  localStorage.setItem("tekstilno-nina-manual-inputs-v1", JSON.stringify(ninaState.manualInputs));
+  persistManualInputs();
 }
 
-function persistOrderRequests() {
-  localStorage.setItem("tekstilno-nina-order-requests-v1", JSON.stringify(ninaState.orderRequests));
+function isManualPayloadEmpty(payload) {
+  if (!payload) return true;
+  const relevant = ["inTransit", "production", "procurement", "eta", "comment", "targetDays", "seasonalityOverride"];
+  return relevant.every((field) => {
+    const value = payload[field];
+    return value === "" || value == null || value === 0;
+  });
 }
 
-function computeRow(row) {
-  const targetDefault = ninaState.targetDays[ninaState.platform] || row.targetDaysDefault || 21;
-  const clusterMetricsCalc = row.clusterMetrics.map((metric) => {
-    const entry = getManualEntry(ninaState.platform, row.sellerArticle, metric.cluster) || {};
-    const targetDays = clampNumber(Number(entry.targetDays || targetDefault), 7, 60, targetDefault);
-    const override = entry.seasonalityOverride === "" || entry.seasonalityOverride == null ? null : Number(entry.seasonalityOverride);
+function getDemandForMode(metric, mode) {
+  if (mode === 7) return Number(metric.dailyDemand7 || 0);
+  if (mode === 28) return Number(metric.dailyDemand28 || 0);
+  return Number(metric.dailyDemand14 || 0);
+}
+
+function computeRow(row, platform = ninaState.platform) {
+  const targetDefault = getTargetDaysForPlatform(platform, row.targetDaysDefault || 21);
+  const mode = getTurnoverModeForPlatform(platform);
+  const seasonBase = Number(row.seasonalityCoef || 1) || 1;
+  const workingDays = Number(row.workingDays || 22) || 22;
+
+  const clusterMetricsCalc = (row.clusterMetrics || []).map((metric) => {
+    const entry = getManualEntry(platform, row.sellerArticle, metric.cluster) || {};
+    const targetDays = clampNumber(Number(entry.targetDays || targetDefault), 7, 90, targetDefault);
+    const seasonOverride = entry.seasonalityOverride === "" || entry.seasonalityOverride == null ? null : Number(entry.seasonalityOverride);
+    const seasonFactor = seasonOverride && seasonOverride > 0 ? seasonOverride : seasonBase;
+
     const actualDaily7 = roundNum(Number(metric.orders7d || 0) / 7, 2);
     const seasonalPlanDay = Number(metric.seasonalPlanDay || 0) || 0;
-    const adjustedBase = override && override > 0
-      ? Math.max(actualDaily7, seasonalPlanDay * override)
-      : Number(metric.adjustedDaily || 0);
+    const dailyDemand7 = actualDaily7;
+    const dailyDemand14 = roundNum(Math.max(actualDaily7, seasonalPlanDay), 2);
+    const dailyDemand28 = roundNum(Math.max(actualDaily7, seasonalPlanDay * Math.max(1, seasonFactor)), 2);
+
     const inTransit = Number(entry.inTransit || 0) || 0;
     const production = Number(entry.production || 0) || 0;
     const procurement = Number(entry.procurement || 0) || 0;
-    const available = Number(metric.stock || 0) + inTransit + production + procurement;
-    const coverage7 = actualDaily7 > 0 ? roundNum(available / actualDaily7, 1) : null;
-    const coverage14 = adjustedBase > 0 ? roundNum(available / adjustedBase, 1) : null;
-    const need = Math.max(0, Math.ceil(adjustedBase * targetDays - available));
+    const stock = Number(metric.stock || 0) || 0;
+    const available = stock + inTransit + production + procurement;
+
+    const coverage7DaysCalc = dailyDemand7 > 0 ? roundNum(available / dailyDemand7, 1) : null;
+    const coverage14DaysCalc = dailyDemand14 > 0 ? roundNum(available / dailyDemand14, 1) : null;
+    const coverage28DaysCalc = dailyDemand28 > 0 ? roundNum(available / dailyDemand28, 1) : null;
+
+    const activeDailyDemand = getDemandForMode({ dailyDemand7, dailyDemand14, dailyDemand28 }, mode);
+    const activeCoverage = activeDailyDemand > 0 ? roundNum(available / activeDailyDemand, 1) : null;
+    const recommendedQtyCalc = Math.max(0, Math.ceil(activeDailyDemand * targetDays - available));
+
     return {
       ...metric,
+      monthlyPlanUnits: Math.round(seasonalPlanDay * workingDays),
       actualDaily7,
-      adjustedDailyCalc: roundNum(adjustedBase, 2),
+      dailyDemand7,
+      dailyDemand14,
+      dailyDemand28,
+      activeDailyDemand: roundNum(activeDailyDemand, 2),
+      stock,
       inTransit,
       production,
       procurement,
       available: roundNum(available, 2),
-      coverage7DaysCalc: coverage7,
-      coverage14DaysCalc: coverage14,
-      turnoverDaysCalc: coverage14,
-      recommendedQtyCalc: need,
+      coverage7DaysCalc,
+      coverage14DaysCalc,
+      coverage28DaysCalc,
+      activeCoverage,
+      recommendedQtyCalc,
       targetDays,
-      seasonalityOverride: override,
-      comment: entry.comment || ""
+      seasonalityOverride: seasonOverride,
+      eta: entry.eta || "",
+      comment: entry.comment || "",
+      updatedAt: entry.updatedAt || ""
     };
   });
 
-  const totalActualDaily7 = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.actualDaily7 || 0), 0);
-  const totalAdjusted = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.adjustedDailyCalc || 0), 0);
-  const totalStock = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.stock || 0), 0);
-  const totalTransit = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.inTransit || 0), 0);
-  const totalProduction = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.production || 0), 0);
-  const totalProcurement = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.procurement || 0), 0);
-  const totalAvailable = totalStock + totalTransit + totalProduction + totalProcurement;
-  const totalNeed = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.recommendedQtyCalc || 0), 0);
-  const totalCoverage7 = totalActualDaily7 > 0 ? roundNum(totalAvailable / totalActualDaily7, 1) : null;
-  const totalCoverage14 = totalAdjusted > 0 ? roundNum(totalAvailable / totalAdjusted, 1) : null;
+  const totalOrders7d = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.orders7d || 0), 0);
+  const totalDemand7Calc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.dailyDemand7 || 0), 0);
+  const totalDemand14Calc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.dailyDemand14 || 0), 0);
+  const totalDemand28Calc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.dailyDemand28 || 0), 0);
+  const totalStockCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.stock || 0), 0);
+  const totalTransitCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.inTransit || 0), 0);
+  const totalProductionCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.production || 0), 0);
+  const totalProcurementCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.procurement || 0), 0);
+  const totalAvailableCalc = totalStockCalc + totalTransitCalc + totalProductionCalc + totalProcurementCalc;
+
+  const totalActiveDemand = mode === 7 ? totalDemand7Calc : mode === 28 ? totalDemand28Calc : totalDemand14Calc;
+  const totalCoverage7Calc = totalDemand7Calc > 0 ? roundNum(totalAvailableCalc / totalDemand7Calc, 1) : null;
+  const totalCoverage14Calc = totalDemand14Calc > 0 ? roundNum(totalAvailableCalc / totalDemand14Calc, 1) : null;
+  const totalCoverage28Calc = totalDemand28Calc > 0 ? roundNum(totalAvailableCalc / totalDemand28Calc, 1) : null;
+  const totalCoverageModeCalc = totalActiveDemand > 0 ? roundNum(totalAvailableCalc / totalActiveDemand, 1) : null;
+  const totalNeedModeCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.recommendedQtyCalc || 0), 0);
+  const monthPlanUnitsTotal = Math.round((Number(row.currentPlanDay || 0) || 0) * workingDays);
 
   return {
     ...row,
+    workingDays,
+    monthPlanUnitsTotal,
     clusterMetricsCalc,
-    totalActualDaily7Calc: roundNum(totalActualDaily7, 2),
-    totalAdjustedCalc: roundNum(totalAdjusted, 2),
-    totalStockCalc: roundNum(totalStock, 2),
-    totalTransitCalc: roundNum(totalTransit, 2),
-    totalProductionCalc: roundNum(totalProduction, 2),
-    totalProcurementCalc: roundNum(totalProcurement, 2),
-    totalAvailableCalc: roundNum(totalAvailable, 2),
-    totalNeedCalc: totalNeed,
-    totalCoverage7Calc: totalCoverage7,
-    totalCoverage14Calc: totalCoverage14,
-    totalTurnoverCalc: totalCoverage14
+    totalOrders7dCalc: Math.round(totalOrders7d),
+    totalDemand7Calc: roundNum(totalDemand7Calc, 2),
+    totalDemand14Calc: roundNum(totalDemand14Calc, 2),
+    totalDemand28Calc: roundNum(totalDemand28Calc, 2),
+    totalActiveDemand: roundNum(totalActiveDemand, 2),
+    totalStockCalc: roundNum(totalStockCalc, 2),
+    totalTransitCalc: roundNum(totalTransitCalc, 2),
+    totalProductionCalc: roundNum(totalProductionCalc, 2),
+    totalProcurementCalc: roundNum(totalProcurementCalc, 2),
+    totalAvailableCalc: roundNum(totalAvailableCalc, 2),
+    totalCoverage7Calc,
+    totalCoverage14Calc,
+    totalCoverage28Calc,
+    totalCoverageModeCalc,
+    totalNeedModeCalc
   };
 }
 
-function getAllComputedRows() {
-  return getPlatformData().rows.map(computeRow);
+function getTargetDaysForPlatform(platform, fallback = 21) {
+  return Number(ninaState.targetDays[platform] || fallback || 21);
 }
-function getClusterWarehouseMap() {
+
+function getTurnoverModeForPlatform(platform) {
+  return Number(ninaState.turnoverMode[platform] || 14);
+}
+
+function getAllComputedRows(platform = ninaState.platform) {
+  return getPlatformData(platform).rows.map((row) => computeRow(row, platform));
+}
+
+function getClusterWarehouseMap(platform = ninaState.platform) {
   const map = new Map();
-  getPlatformData().rows.forEach((row) => {
+  getPlatformData(platform).rows.forEach((row) => {
     (row.clusterMetrics || []).forEach((metric) => {
-      const cluster = metric.cluster;
+      const cluster = String(metric.cluster || "").trim();
       if (!cluster) return;
       if (!map.has(cluster)) map.set(cluster, new Set());
       const warehouse = formatWarehouseLabel(metric.shippingWarehouse || metric.shippingCluster || "");
@@ -248,31 +323,45 @@ function getClusterWarehouseMap() {
   return map;
 }
 
-function buildClusterHead(cluster, warehouseMap) {
-  const warehouses = Array.from(warehouseMap.get(cluster) || []);
-  const shown = warehouses.slice(0, 4);
-  const more = warehouses.length - shown.length;
-  return `
-    <div class="cluster-head">
-      <span class="cluster-title">${escapeHtml(cluster)}</span>
-      <div class="warehouse-list">
-        ${shown.length
-          ? shown.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")
-          : `<span class="warehouse-note">агрегировано по кластеру</span>`}
-        ${more > 0 ? `<span class="warehouse-note">+${more}</span>` : ""}
-      </div>
-    </div>`;
+function renderAll() {
+  if (!ninaState.data) return;
+  const rows = getPlatformData().rows;
+  if (!ninaState.selectedArticle && rows.length) {
+    ninaState.selectedArticle = rows[0].sellerArticle;
+  }
+  updateToggleUi();
+  renderSummary();
+  renderClusterGuides();
+  populateOrderSelectors();
+  renderSelectedCard();
+  renderTopDeficits();
+  renderMatrix();
+  renderOrdersTable();
 }
 
+function renderSummary() {
+  const rows = getAllComputedRows();
+  ninaEls.sumArticles.textContent = numberFormat(rows.length);
+  ninaEls.sumClusters.textContent = numberFormat(getPlatformData().clusters.length);
+  ninaEls.sumPlanMonth.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.monthPlanUnitsTotal || 0), 0));
+  ninaEls.sumDaily.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalActiveDemand || 0), 0), 1);
+  ninaEls.sumDailyCaption.textContent = `Спрос / день (${getCurrentTurnoverMode()} дн)`;
+  ninaEls.sumStock.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalStockCalc || 0), 0));
+  ninaEls.sumMainStock.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.mainWarehouseStock || 0), 0));
+  ninaEls.sumNeed.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalNeedModeCalc || 0), 0));
+  ninaEls.sumNeedCaption.textContent = `Нужно к пополнению (${getCurrentTurnoverMode()} дн)`;
+  ninaEls.topDeficitsCaption.textContent = `Топ просадок на горизонте ${getCurrentTurnoverMode()} дн.`;
+}
 
 function getFilteredRows() {
   const rows = getAllComputedRows();
   const search = ninaState.filters.search;
   const priorityRank = { critical: 4, high: 3, medium: 2, low: 1 };
+
   let filtered = rows.filter((row) => {
-    const hay = `${row.sellerArticle} ${row.name || ""} ${row.category || ""}`.toLowerCase();
+    const hay = `${row.sellerArticle} ${row.name || ""} ${row.category || ""} ${row.platformArticle || ""}`.toLowerCase();
     if (search && !hay.includes(search)) return false;
-    if (ninaState.filters.showMode === "need" && row.totalNeedCalc <= 0) return false;
+    if (ninaState.filters.showMode === "need" && row.totalNeedModeCalc <= 0) return false;
     if (ninaState.filters.showMode === "priority" && !["critical", "high"].includes(row.priorityBucket)) return false;
     if (ninaState.filters.showMode === "manual") {
       const hasManual = row.clusterMetricsCalc.some((metric) => !!getManualEntry(ninaState.platform, row.sellerArticle, metric.cluster));
@@ -282,307 +371,360 @@ function getFilteredRows() {
   });
 
   filtered.sort((a, b) => {
-    if (ninaState.filters.sort === "article") return a.sellerArticle.localeCompare(b.sellerArticle, "ru");
-    if (ninaState.filters.sort === "daily") return (b.totalAdjustedCalc || 0) - (a.totalAdjustedCalc || 0);
+    if (ninaState.filters.sort === "article") return String(a.sellerArticle).localeCompare(String(b.sellerArticle), "ru");
+    if (ninaState.filters.sort === "daily") return (b.totalActiveDemand || 0) - (a.totalActiveDemand || 0);
+    if (ninaState.filters.sort === "month") return (b.monthPlanUnitsTotal || 0) - (a.monthPlanUnitsTotal || 0);
     if (ninaState.filters.sort === "priority") {
-      return (priorityRank[b.priorityBucket] || 0) - (priorityRank[a.priorityBucket] || 0) || (b.totalNeedCalc || 0) - (a.totalNeedCalc || 0);
+      return (priorityRank[b.priorityBucket] || 0) - (priorityRank[a.priorityBucket] || 0) || (b.totalNeedModeCalc || 0) - (a.totalNeedModeCalc || 0);
     }
-    return (b.totalNeedCalc || 0) - (a.totalNeedCalc || 0) || (b.totalAdjustedCalc || 0) - (a.totalAdjustedCalc || 0);
+    return (b.totalNeedModeCalc || 0) - (a.totalNeedModeCalc || 0) || (b.totalActiveDemand || 0) - (a.totalActiveDemand || 0);
   });
 
   return filtered.slice(0, ninaState.filters.limit);
 }
 
-function renderSummary() {
-  const rows = getAllComputedRows();
-  ninaEls.sumArticles.textContent = numberFormat(rows.length);
-  ninaEls.sumClusters.textContent = numberFormat(getPlatformData().clusters.length);
-  ninaEls.sumDaily.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalAdjustedCalc || 0), 0), 1);
-  ninaEls.sumStock.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalStockCalc || 0), 0));
-  ninaEls.sumMainStock.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.mainWarehouseStock || 0), 0));
-  ninaEls.sumNeed.textContent = numberFormat(rows.reduce((sum, row) => sum + Number(row.totalNeedCalc || 0), 0));
-}
-
 function renderMatrix() {
   const platformData = getPlatformData();
-  const clusters = platformData.clusters;
+  const clusters = platformData.clusters || [];
   const rows = getFilteredRows();
-  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. Покр.7 = фактический темп 7 дней, Покр.14 = сглаженный темп с учетом сезонного плана.`;
+  ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. В матрице сразу вносятся: в пути, производство, закупка, дата прихода и комментарий. Оборачиваемость и потребность считаются в режиме ${getCurrentTurnoverMode()} дн.`;
   ninaEls.matrixHead.innerHTML = buildMatrixHead(clusters);
   if (!rows.length) {
-    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${13 + clusters.length * 9}">По текущим фильтрам ничего не найдено.</td></tr>`;
+    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${5 + 9 + clusters.length * 12}">По текущим фильтрам ничего не найдено.</td></tr>`;
     return;
   }
   ninaEls.matrixBody.innerHTML = rows.map((row) => buildMatrixRow(row, clusters)).join("");
-
-  ninaEls.matrixBody.querySelectorAll("[data-article-open]").forEach((button) => {
-    button.addEventListener("click", () => {
-      ninaState.selectedArticle = button.dataset.articleOpen;
-      renderSelectedCard();
-      ninaEls.quickArticleSelect.value = ninaState.selectedArticle;
-      populateQuickClusters();
-    });
-  });
-
-  ninaEls.matrixBody.querySelectorAll("[data-fill-order]").forEach((button) => {
-    button.addEventListener("click", () => {
-      ninaState.selectedArticle = button.dataset.article;
-      switchPage("orders");
-      ninaEls.orderArticleSelect.value = button.dataset.article;
-      populateOrderClusters(button.dataset.cluster);
-      ninaEls.orderClusterSelect.value = button.dataset.cluster;
-      fillOrderRecommendation();
-    });
-  });
 }
 
 function buildMatrixHead(clusters) {
   const warehouseMap = getClusterWarehouseMap();
-  const labels = ["7д", "План/д", "Ост", "В пути", "Пр-во", "Закуп", "Покр.7", "Покр.14", "Нужно"];
+  const totalLabels = ["7д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Нужно"];
+  const clusterLabels = ["7д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Нужно", "Дата прихода", "Коммент", "Заявка"];
   const top = [
     `<th class="sticky-col col-article" rowspan="2">Артикул / размер</th>`,
     `<th class="sticky-col-2 col-name" rowspan="2">Товар</th>`,
     `<th class="sticky-col-3 col-priority" rowspan="2">Приоритет</th>`,
-    `<th class="sticky-col-4 col-main" rowspan="2">Осн. склад</th>`,
-    `<th colspan="9">ИТОГО</th>`
+    `<th class="sticky-col-4 col-planmonth" rowspan="2">План мес., шт</th>`,
+    `<th class="sticky-col-5 col-main" rowspan="2">Осн. склад</th>`,
+    `<th class="group-head" colspan="${totalLabels.length}">ИТОГО</th>`
   ];
-  clusters.forEach((cluster) => top.push(`<th colspan="9">${buildClusterHead(cluster, warehouseMap)}</th>`));
-  return `<tr>${top.join("")}</tr><tr>${labels.map((l) => `<th class="metric-col">${l}</th>`).join("")}${clusters.map(() => labels.map((l) => `<th class="metric-col">${l}</th>`).join("")).join("")}</tr>`;
+  clusters.forEach((cluster) => {
+    top.push(`<th class="group-head cluster-group" colspan="${clusterLabels.length}">${buildClusterHead(cluster, warehouseMap)}</th>`);
+  });
+  return `<tr>${top.join("")}</tr><tr>${totalLabels.map((label) => `<th class="metric-col">${label}</th>`).join("")}${clusters.map(() => clusterLabels.map((label) => `<th class="metric-col ${label === "Коммент" ? "col-comment" : ""} ${label === "Заявка" ? "col-order" : ""}">${label}</th>`).join("")).join("")}</tr>`;
+}
+
+function buildClusterHead(cluster, warehouseMap) {
+  const warehouses = Array.from(warehouseMap.get(cluster) || []);
+  const shown = warehouses.slice(0, 6);
+  const more = warehouses.length - shown.length;
+  return `
+    <div class="cluster-head">
+      <span class="cluster-title">${escapeHtml(cluster)}</span>
+      <div class="warehouse-list">
+        ${shown.length
+          ? shown.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")
+          : `<span class="warehouse-note">в исходнике без разбивки по складам</span>`}
+        ${more > 0 ? `<span class="warehouse-note">+${more}</span>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 function buildMatrixRow(row, clusters) {
   const byCluster = new Map(row.clusterMetricsCalc.map((metric) => [metric.cluster, metric]));
   const priorityClass = `priority-${row.priorityBucket || "low"}`;
-  const totalNeedClass = row.totalNeedCalc > 100 ? "need-high" : row.totalNeedCalc > 0 ? "need-mid" : "need-zero";
+  const totalNeedClass = row.totalNeedModeCalc > 100 ? "need-high" : row.totalNeedModeCalc > 0 ? "need-mid" : "need-zero";
   const totalCells = [
-    row.totalOrders7d || 0,
-    row.totalAdjustedCalc || 0,
-    row.totalStockCalc || 0,
-    row.totalTransitCalc || 0,
-    row.totalProductionCalc || 0,
-    row.totalProcurementCalc || 0,
-    row.totalCoverage7Calc,
-    row.totalCoverage14Calc,
-    row.totalNeedCalc || 0
-  ].map((value, idx) => {
-    if (idx === 8) {
-      return `<td class="metric-col"><span class="need-pill ${totalNeedClass}">${numberFormat(value)}</span></td>`;
-    }
-    const rendered = idx === 1 ? numberFormat(value, 1) : idx >= 6 ? numberOrDash(value) : numberFormat(value || 0);
-    return `<td class="metric-col">${rendered}</td>`;
-  }).join("");
+    formatNumericCell(row.totalOrders7dCalc, true),
+    formatNumericCell(row.totalActiveDemand, false, 1),
+    formatNumericCell(row.monthPlanUnitsTotal, true),
+    formatNumericCell(row.totalStockCalc, true),
+    formatNumericCell(row.totalTransitCalc, true),
+    formatNumericCell(row.totalProductionCalc, true),
+    formatNumericCell(row.totalProcurementCalc, true),
+    formatNumericCell(row.totalCoverageModeCalc, false, 1),
+    `<td class="metric-col total-cell"><span class="need-pill ${totalNeedClass}">${numberFormat(row.totalNeedModeCalc || 0)}</span></td>`
+  ].join("");
 
   const clusterCells = clusters.map((cluster) => {
-    const metric = byCluster.get(cluster) || {
-      orders7d: 0, adjustedDailyCalc: 0, stock: 0, inTransit: 0, production: 0, procurement: 0, coverage7DaysCalc: null, coverage14DaysCalc: null, recommendedQtyCalc: 0, comment: "", shippingWarehouse: ""
+    const metric = byCluster.get(cluster);
+    const entry = metric || {
+      cluster,
+      orders7d: 0,
+      activeDailyDemand: 0,
+      monthlyPlanUnits: 0,
+      stock: 0,
+      inTransit: 0,
+      production: 0,
+      procurement: 0,
+      activeCoverage: null,
+      recommendedQtyCalc: 0,
+      eta: "",
+      comment: ""
     };
-    const needClass = metric.recommendedQtyCalc > 100 ? "need-high" : metric.recommendedQtyCalc > 0 ? "need-mid" : "need-zero";
-    const cellTitle = [metric.shippingWarehouse ? `Склад: ${metric.shippingWarehouse}` : "", metric.comment || ""].filter(Boolean).join(" · ");
-    const values = [
-      metric.orders7d || 0,
-      metric.adjustedDailyCalc || 0,
-      metric.stock || 0,
-      metric.inTransit || 0,
-      metric.production || 0,
-      metric.procurement || 0,
-      metric.coverage7DaysCalc,
-      metric.coverage14DaysCalc,
-      metric.recommendedQtyCalc || 0
-    ];
-    return values.map((value, idx) => {
-      if (idx === 8) {
-        return `<td class="metric-col" title="${escapeHtml(cellTitle)}"><button type="button" class="need-pill ${needClass}" data-fill-order data-article="${escapeHtmlAttr(row.sellerArticle)}" data-cluster="${escapeHtmlAttr(cluster)}">${numberFormat(value)}</button></td>`;
-      }
-      const rendered = idx === 1 ? numberFormat(value, 1) : idx >= 6 ? numberOrDash(value) : numberFormat(value || 0);
-      return `<td class="metric-col" title="${escapeHtml(cellTitle)}">${rendered}</td>`;
-    }).join("");
+    const needClass = entry.recommendedQtyCalc > 100 ? "need-high" : entry.recommendedQtyCalc > 0 ? "need-mid" : "need-zero";
+    const titleBits = [];
+    const warehouse = formatWarehouseLabel(entry.shippingWarehouse || entry.shippingCluster || "");
+    if (warehouse) titleBits.push(`Склад: ${warehouse}`);
+    if (entry.source) titleBits.push(`Источник: ${entry.source}`);
+    const titleAttr = titleBits.length ? ` title="${escapeHtmlAttr(titleBits.join(" · "))}"` : "";
+    return `
+      <td class="metric-col"${titleAttr}>${numberFormat(entry.orders7d || 0)}</td>
+      <td class="metric-col"${titleAttr}>${numberFormat(entry.activeDailyDemand || 0, 1)}</td>
+      <td class="metric-col"${titleAttr}>${numberFormat(entry.monthlyPlanUnits || 0)}</td>
+      <td class="metric-col"${titleAttr}>${numberFormat(entry.stock || 0)}</td>
+      <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "inTransit", entry.inTransit)}</td>
+      <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "production", entry.production)}</td>
+      <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "procurement", entry.procurement)}</td>
+      <td class="metric-col"${titleAttr}>${numberOrDash(entry.activeCoverage)}</td>
+      <td class="metric-col"${titleAttr}><span class="need-pill ${needClass}">${numberFormat(entry.recommendedQtyCalc || 0)}</span></td>
+      <td class="metric-col">${buildInlineDate(row.sellerArticle, cluster, "eta", entry.eta)}</td>
+      <td class="metric-col">${buildInlineText(row.sellerArticle, cluster, "comment", entry.comment)}</td>
+      <td class="metric-col"><button type="button" class="order-btn" data-fill-order data-article="${escapeHtmlAttr(row.sellerArticle)}" data-cluster="${escapeHtmlAttr(cluster)}">В заявку</button></td>
+    `;
   }).join("");
 
   return `
-    <tr>
+    <tr data-row-article="${escapeHtmlAttr(row.sellerArticle)}">
       <td class="sticky-col col-article"><button type="button" class="article-link" data-article-open="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)}</button></td>
       <td class="sticky-col-2 col-name"><strong>${escapeHtml(row.name || "")}</strong><br><span class="muted">${escapeHtml(row.category || "")}</span></td>
       <td class="sticky-col-3 col-priority"><span class="priority-pill ${priorityClass}">${escapeHtml(row.priorityLabel || "—")}</span></td>
-      <td class="sticky-col-4 col-main">${numberFormat(row.mainWarehouseStock || 0)}</td>
+      <td class="sticky-col-4 col-planmonth">${numberFormat(row.monthPlanUnitsTotal || 0)}</td>
+      <td class="sticky-col-5 col-main">${numberFormat(row.mainWarehouseStock || 0)}</td>
       ${totalCells}
       ${clusterCells}
-    </tr>`;
+    </tr>
+  `;
+}
+
+function formatNumericCell(value, integer = false, digits = 0) {
+  const rendered = integer ? numberFormat(value || 0) : numberOrDashWithDigits(value, digits);
+  return `<td class="metric-col total-cell">${rendered}</td>`;
+}
+
+function buildInlineNumber(article, cluster, field, value) {
+  const filled = Number(value || 0) > 0 ? "inline-filled" : "";
+  return `<input class="inline-input ${filled}" type="number" min="0" step="1" value="${escapeHtmlAttr(value || "")}" data-manual-field="${field}" data-article="${escapeHtmlAttr(article)}" data-cluster="${escapeHtmlAttr(cluster)}" />`;
+}
+
+function buildInlineDate(article, cluster, field, value) {
+  const filled = value ? "inline-filled" : "";
+  return `<input class="inline-date ${filled}" type="date" value="${escapeHtmlAttr(normalizeDateValue(value))}" data-manual-field="${field}" data-article="${escapeHtmlAttr(article)}" data-cluster="${escapeHtmlAttr(cluster)}" />`;
+}
+
+function buildInlineText(article, cluster, field, value) {
+  const filled = value ? "inline-filled" : "";
+  return `<input class="inline-text ${filled}" type="text" value="${escapeHtmlAttr(value || "")}" placeholder="коммент" data-manual-field="${field}" data-article="${escapeHtmlAttr(article)}" data-cluster="${escapeHtmlAttr(cluster)}" />`;
+}
+
+function handleMatrixClick(event) {
+  const articleBtn = event.target.closest("[data-article-open]");
+  if (articleBtn) {
+    ninaState.selectedArticle = articleBtn.dataset.articleOpen;
+    renderSelectedCard();
+    return;
+  }
+
+  const orderBtn = event.target.closest("[data-fill-order]");
+  if (orderBtn) {
+    openOrderFromMatrix(orderBtn.dataset.article, orderBtn.dataset.cluster);
+  }
+}
+
+function handleMatrixChange(event) {
+  const control = event.target.closest("[data-manual-field]");
+  if (!control) return;
+
+  const article = control.dataset.article;
+  const cluster = control.dataset.cluster;
+  const field = control.dataset.manualField;
+  if (!article || !cluster || !field) return;
+
+  const previous = getManualEntry(ninaState.platform, article, cluster) || {};
+  const payload = { ...previous };
+
+  if (["inTransit", "production", "procurement"].includes(field)) {
+    payload[field] = Number(control.value || 0) || 0;
+  } else {
+    payload[field] = String(control.value || "").trim();
+  }
+  payload.updatedAt = new Date().toISOString();
+
+  preserveMatrixScroll(() => {
+    setManualEntry(ninaState.platform, article, cluster, payload);
+    renderSummary();
+    renderSelectedCardIfNeeded(article);
+    renderTopDeficits();
+    renderMatrix();
+    fillOrderRecommendationIfMatches(article, cluster);
+  });
+
+  showToast("Сохранено.");
+}
+
+function preserveMatrixScroll(callback) {
+  const left = ninaEls.matrixWrap.scrollLeft;
+  const top = ninaEls.matrixWrap.scrollTop;
+  callback();
+  ninaEls.matrixWrap.scrollLeft = left;
+  ninaEls.matrixWrap.scrollTop = top;
+}
+
+function renderSelectedCardIfNeeded(article) {
+  if (ninaState.selectedArticle === article) {
+    renderSelectedCard();
+  }
+}
+
+function fillOrderRecommendationIfMatches(article, cluster) {
+  if (ninaEls.orderArticleSelect.value === article) {
+    populateOrderClusters(cluster);
+    fillOrderRecommendation();
+  }
 }
 
 function renderSelectedCard() {
   const rowMap = getRowMap();
-  const article = ninaState.selectedArticle && rowMap.has(ninaState.selectedArticle)
+  const row = ninaState.selectedArticle && rowMap.has(ninaState.selectedArticle)
     ? computeRow(rowMap.get(ninaState.selectedArticle))
     : getAllComputedRows()[0];
 
-  if (!article) {
-    ninaEls.selectedSubtitle.textContent = "Выбери артикул из таблицы ниже.";
+  if (!row) {
+    ninaEls.selectedSubtitle.textContent = "Выбери артикул из матрицы ниже.";
     ninaEls.selectedArticleCard.className = "selected-card empty";
     ninaEls.selectedArticleCard.textContent = "Пока ничего не выбрано.";
     return;
   }
 
-  ninaState.selectedArticle = article.sellerArticle;
-  ninaEls.selectedSubtitle.textContent = `${ninaState.platform} · ${article.sellerArticle}`;
+  ninaState.selectedArticle = row.sellerArticle;
+  ninaEls.selectedSubtitle.textContent = `${ninaState.platform} · ${row.sellerArticle}`;
   ninaEls.selectedArticleCard.className = "selected-card";
 
-  const topClusters = [...article.clusterMetricsCalc]
+  const warehouseMap = getClusterWarehouseMap();
+  const topClusters = [...row.clusterMetricsCalc]
     .sort((a, b) => (b.recommendedQtyCalc || 0) - (a.recommendedQtyCalc || 0))
     .slice(0, 5);
 
   ninaEls.selectedArticleCard.innerHTML = `
-    <div>
-      <strong style="font-size:18px;">${escapeHtml(article.name || "")}</strong>
-      <div class="deficit-meta">
-        <span class="priority-pill priority-${article.priorityBucket || "low"}">${escapeHtml(article.priorityLabel || "—")}</span>
-        <span class="tag-pill">Коэф. сезона: ${numberFormat(article.seasonalityCoef || 1, 2)}</span>
-        <span class="tag-pill">Осн. склад: ${numberFormat(article.mainWarehouseStock || 0)}</span>
+    <div class="article-head">
+      <div>
+        <h3>${escapeHtml(row.name || "")}</h3>
+        <div class="article-meta">
+          <span class="priority-pill priority-${row.priorityBucket || "low"}">${escapeHtml(row.priorityLabel || "—")}</span>
+          <span class="tag-pill">План мес.: ${numberFormat(row.monthPlanUnitsTotal || 0)} шт</span>
+          <span class="tag-pill">План/д: ${numberFormat(row.currentPlanDay || 0, 1)}</span>
+          <span class="tag-pill">Осн. склад: ${numberFormat(row.mainWarehouseStock || 0)}</span>
+        </div>
       </div>
+      <div class="tag-pill">${escapeHtml(row.platformArticle || "без platformArticle")}</div>
     </div>
-    <div class="article-summary">
-      <div class="summary-block"><span>План / день</span><strong>${numberFormat(article.currentPlanDay || 0, 1)}</strong></div>
-      <div class="summary-block"><span>Покр.7</span><strong>${numberOrDash(article.totalCoverage7Calc)}</strong></div>
-      <div class="summary-block"><span>Покр.14</span><strong>${numberOrDash(article.totalCoverage14Calc)}</strong></div>
-      <div class="summary-block"><span>Запас в кластерах</span><strong>${numberFormat(article.totalStockCalc || 0)}</strong></div>
-      <div class="summary-block"><span>В пути / пр-во / закуп</span><strong>${numberFormat(article.totalTransitCalc || 0)} / ${numberFormat(article.totalProductionCalc || 0)} / ${numberFormat(article.totalProcurementCalc || 0)}</strong></div>
-      <div class="summary-block"><span>Реком. отгрузка</span><strong>${numberFormat(article.totalNeedCalc || 0)}</strong></div>
-    </div>
-    <div class="summary-block">
-      <span>Что сделать</span>
-      <strong style="font-size:16px; line-height:1.35;">${escapeHtml(article.action || "—")}</strong>
-      <div class="muted" style="margin-top:8px;">${escapeHtml(article.reason || "")}</div>
-    </div>
-    <div>
-      <span style="display:block; margin-bottom:8px; color:var(--muted); font-size:12px; font-weight:700;">Топ кластеров по дефициту</span>
-      <div class="cluster-mini-list">
-        ${topClusters.map((metric) => `
-          <div class="cluster-mini-item">
-            <div>
-              <strong>${escapeHtml(metric.cluster)}</strong>
-              <div class="muted">Покр.7: ${numberOrDash(metric.coverage7DaysCalc)} · Покр.14: ${numberOrDash(metric.coverage14DaysCalc)}</div>
-            </div>
-            <div><span class="need-pill ${(metric.recommendedQtyCalc || 0) > 100 ? "need-high" : (metric.recommendedQtyCalc || 0) > 0 ? "need-mid" : "need-zero"}">${numberFormat(metric.recommendedQtyCalc || 0)}</span></div>
-          </div>
-        `).join("")}
-      </div>
-    </div>`;
 
-  ninaEls.quickArticleSelect.value = article.sellerArticle;
-  populateQuickClusters();
+    <div class="article-summary">
+      <div class="summary-block"><span>Оборач. 7 дн</span><strong>${numberOrDash(row.totalCoverage7Calc)}</strong></div>
+      <div class="summary-block"><span>Оборач. 14 дн</span><strong>${numberOrDash(row.totalCoverage14Calc)}</strong></div>
+      <div class="summary-block"><span>Оборач. 28 дн</span><strong>${numberOrDash(row.totalCoverage28Calc)}</strong></div>
+      <div class="summary-block"><span>Запас на МП</span><strong>${numberFormat(row.totalStockCalc || 0)}</strong></div>
+      <div class="summary-block"><span>В пути / пр-во / закуп</span><strong>${numberFormat(row.totalTransitCalc || 0)} / ${numberFormat(row.totalProductionCalc || 0)} / ${numberFormat(row.totalProcurementCalc || 0)}</strong></div>
+      <div class="summary-block"><span>Нужно (${getCurrentTurnoverMode()} дн)</span><strong>${numberFormat(row.totalNeedModeCalc || 0)}</strong></div>
+    </div>
+
+    <div class="summary-block">
+      <span>Что делать по артикулу</span>
+      <strong style="font-size:16px; line-height:1.4;">${escapeHtml(row.action || "—")}</strong>
+      <div class="muted" style="margin-top:8px;">${escapeHtml(row.reason || "")}</div>
+    </div>
+
+    <div>
+      <span style="display:block; margin-bottom:8px; color:var(--muted); font-size:12px; font-weight:700;">Кластеры с наибольшей потребностью</span>
+      <div class="cluster-mini-list">
+        ${topClusters.map((metric) => {
+          const warehouses = Array.from(warehouseMap.get(metric.cluster) || []).slice(0, 4);
+          const more = Math.max(0, (warehouseMap.get(metric.cluster)?.size || 0) - warehouses.length);
+          return `
+            <div class="cluster-mini-item">
+              <div>
+                <strong>${escapeHtml(metric.cluster)}</strong>
+                <div class="muted">План мес.: ${numberFormat(metric.monthlyPlanUnits || 0)} · Обор.: ${numberOrDash(metric.activeCoverage)}</div>
+                <div class="cluster-mini-warehouses">
+                  ${warehouses.length ? warehouses.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("") : `<span class="warehouse-note">агрегировано</span>`}
+                  ${more > 0 ? `<span class="warehouse-note">+${more}</span>` : ""}
+                </div>
+              </div>
+              <div><span class="need-chip ${(metric.recommendedQtyCalc || 0) > 100 ? "need-high" : (metric.recommendedQtyCalc || 0) > 0 ? "need-mid" : "need-zero"}">${numberFormat(metric.recommendedQtyCalc || 0)}</span></div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
 }
 
-function populateArticleSelectors() {
-  const rows = getPlatformData().rows;
-  const options = rows.map((row) => `<option value="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)} · ${escapeHtml(row.name || "")}</option>`).join("");
-  ninaEls.quickArticleSelect.innerHTML = options;
-  ninaEls.orderArticleSelect.innerHTML = options;
-  if (!ninaState.selectedArticle && rows.length) ninaState.selectedArticle = rows[0].sellerArticle;
-  if (ninaState.selectedArticle) {
-    ninaEls.quickArticleSelect.value = ninaState.selectedArticle;
-    ninaEls.orderArticleSelect.value = ninaState.selectedArticle;
+function handleTopDeficitClick(event) {
+  const button = event.target.closest("[data-top-deficit]");
+  if (!button) return;
+  ninaState.selectedArticle = button.dataset.topDeficit;
+  renderSelectedCard();
+  switchPage("matrix");
+  scrollToSelectedRow();
+}
+
+function scrollToSelectedRow() {
+  const row = Array.from(ninaEls.matrixBody.querySelectorAll("tr[data-row-article]"))
+    .find((item) => item.dataset.rowArticle === ninaState.selectedArticle);
+  if (row) {
+    row.scrollIntoView({ block: "nearest", inline: "start" });
   }
 }
 
-function populateQuickClusters(selectedValue) {
-  const row = getRowMap().get(ninaEls.quickArticleSelect.value);
-  const clusters = (row?.clusterMetrics || []).map((metric) => metric.cluster).filter(Boolean);
-  ninaEls.quickClusterSelect.innerHTML = clusters.map((cluster) => `<option value="${escapeHtmlAttr(cluster)}">${escapeHtml(cluster)}</option>`).join("");
-  if (selectedValue) ninaEls.quickClusterSelect.value = selectedValue;
-  fillQuickInputForm();
+function renderTopDeficits() {
+  const rows = getAllComputedRows()
+    .filter((row) => row.totalNeedModeCalc > 0)
+    .sort((a, b) => (b.totalNeedModeCalc || 0) - (a.totalNeedModeCalc || 0))
+    .slice(0, 15);
+
+  ninaEls.topDeficitsList.innerHTML = rows.length ? rows.map((row) => `
+    <button type="button" class="deficit-item" data-top-deficit="${escapeHtmlAttr(row.sellerArticle)}">
+      <strong>${escapeHtml(row.sellerArticle)}</strong>
+      <div>${escapeHtml(row.name || "")}</div>
+      <div class="deficit-meta">
+        <span class="priority-pill priority-${row.priorityBucket || "low"}">${escapeHtml(row.priorityLabel || "—")}</span>
+        <span class="tag-pill">Нужно: ${numberFormat(row.totalNeedModeCalc || 0)} шт</span>
+        <span class="tag-pill">План мес.: ${numberFormat(row.monthPlanUnitsTotal || 0)} шт</span>
+      </div>
+    </button>
+  `).join("") : `<div class="deficit-item">По текущему горизонту дефицитов нет.</div>`;
 }
 
-function fillQuickInputForm() {
-  const article = ninaEls.quickArticleSelect.value;
-  const cluster = ninaEls.quickClusterSelect.value;
-  const entry = getManualEntry(ninaState.platform, article, cluster) || {};
-  ninaEls.quickTransitInput.value = entry.inTransit ?? "";
-  ninaEls.quickProductionInput.value = entry.production ?? "";
-  ninaEls.quickProcurementInput.value = entry.procurement ?? "";
-  ninaEls.quickTargetDaysInput.value = entry.targetDays ?? ninaState.targetDays[ninaState.platform] ?? 21;
-  ninaEls.quickSeasonalityInput.value = entry.seasonalityOverride ?? "";
-  ninaEls.quickCommentInput.value = entry.comment ?? "";
+function renderClusterGuides() {
+  const warehouseMap = getClusterWarehouseMap();
+  const clusters = getPlatformData().clusters || [];
+  const html = clusters.map((cluster) => {
+    const warehouses = Array.from(warehouseMap.get(cluster) || []);
+    return `
+      <article class="cluster-guide-card">
+        <strong>${escapeHtml(cluster)}</strong>
+        ${warehouses.length
+          ? `<div class="deficit-meta">${warehouses.map((warehouse) => `<span class="warehouse-chip">${escapeHtml(warehouse)}</span>`).join("")}</div>`
+          : `<span class="muted">В исходной выгрузке эта зона дана агрегированно, без списка складов.</span>`}
+      </article>
+    `;
+  }).join("");
+  ninaEls.clusterGuide.innerHTML = html;
+  ninaEls.formulaClusters.innerHTML = html;
 }
 
-function saveQuickInput(event) {
-  event.preventDefault();
-  const article = ninaEls.quickArticleSelect.value;
-  const cluster = ninaEls.quickClusterSelect.value;
-  if (!article || !cluster) return;
-  const payload = {
-    inTransit: Number(ninaEls.quickTransitInput.value || 0) || 0,
-    production: Number(ninaEls.quickProductionInput.value || 0) || 0,
-    procurement: Number(ninaEls.quickProcurementInput.value || 0) || 0,
-    targetDays: Number(ninaEls.quickTargetDaysInput.value || ninaState.targetDays[ninaState.platform] || 21) || 21,
-    seasonalityOverride: ninaEls.quickSeasonalityInput.value === "" ? 0 : Number(ninaEls.quickSeasonalityInput.value || 0),
-    comment: ninaEls.quickCommentInput.value.trim(),
-    updatedAt: new Date().toISOString()
-  };
-  setManualEntry(ninaState.platform, article, cluster, payload);
-  ninaState.selectedArticle = article;
-  renderSummary();
-  renderMatrix();
-  renderSelectedCard();
-  renderStockTable();
-  renderTopDeficits();
-  renderInputsTable();
-  fillOrderRecommendation();
-  showToast("Данные по кластеру сохранены.");
-}
-
-function clearQuickInput() {
-  const article = ninaEls.quickArticleSelect.value;
-  const cluster = ninaEls.quickClusterSelect.value;
-  setManualEntry(ninaState.platform, article, cluster, null);
-  fillQuickInputForm();
-  renderSummary();
-  renderMatrix();
-  renderSelectedCard();
-  renderStockTable();
-  renderTopDeficits();
-  renderInputsTable();
-  fillOrderRecommendation();
-  showToast("Данные по кластеру очищены.");
-}
-
-function renderStockTable() {
-  const rows = getAllComputedRows();
-  const flat = [];
-  rows.forEach((row) => {
-    row.clusterMetricsCalc.forEach((metric) => {
-      flat.push({
-        sellerArticle: row.sellerArticle,
-        name: row.name,
-        cluster: metric.cluster,
-        orders7d: metric.orders7d,
-        adjustedDailyCalc: metric.adjustedDailyCalc,
-        stock: metric.stock,
-        inTransit: metric.inTransit,
-        production: metric.production,
-        procurement: metric.procurement,
-        coverage7: metric.coverage7DaysCalc,
-        coverage14: metric.coverage14DaysCalc,
-        need: metric.recommendedQtyCalc,
-        mainWarehouseStock: row.mainWarehouseStock
-      });
-    });
-  });
-  flat.sort((a, b) => (b.need || 0) - (a.need || 0));
-  ninaEls.stockBody.innerHTML = flat.length ? flat.map((item) => `
-    <tr>
-      <td>${escapeHtml(item.sellerArticle)}</td>
-      <td>${escapeHtml(item.name || "")}</td>
-      <td>${escapeHtml(item.cluster)}</td>
-      <td class="num">${numberFormat(item.orders7d || 0)}</td>
-      <td class="num">${numberFormat(item.adjustedDailyCalc || 0, 1)}</td>
-      <td class="num">${numberFormat(item.stock || 0)}</td>
-      <td class="num">${numberFormat(item.inTransit || 0)}</td>
-      <td class="num">${numberFormat(item.production || 0)}</td>
-      <td class="num">${numberFormat(item.procurement || 0)}</td>
-      <td class="num">${numberOrDash(item.coverage7)}</td>
-      <td class="num">${numberOrDash(item.coverage14)}</td>
-      <td class="num">${numberFormat(item.need || 0)}</td>
-      <td class="num">${numberFormat(item.mainWarehouseStock || 0)}</td>
-    </tr>`).join("") : `<tr><td colspan="13">Нет данных.</td></tr>`;
+function populateOrderSelectors() {
+  const rows = getPlatformData().rows;
+  const options = rows.map((row) => `<option value="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)} · ${escapeHtml(row.name || "")}</option>`).join("");
+  ninaEls.orderArticleSelect.innerHTML = options;
+  if (!ninaEls.orderArticleSelect.value && rows.length) {
+    ninaEls.orderArticleSelect.value = rows[0].sellerArticle;
+  }
+  if (ninaState.selectedArticle) {
+    ninaEls.orderArticleSelect.value = ninaState.selectedArticle;
+  }
+  populateOrderClusters();
 }
 
 function populateOrderClusters(selectedValue) {
@@ -593,9 +735,17 @@ function populateOrderClusters(selectedValue) {
   fillOrderRecommendation();
 }
 
+function openOrderFromMatrix(article, cluster) {
+  ninaState.selectedArticle = article;
+  ninaEls.orderArticleSelect.value = article;
+  populateOrderClusters(cluster);
+  ninaEls.orderClusterSelect.value = cluster;
+  fillOrderRecommendation();
+  switchPage("orders");
+}
+
 function fillOrderRecommendation() {
-  const rowMap = getRowMap();
-  const row = rowMap.get(ninaEls.orderArticleSelect.value);
+  const row = getRowMap().get(ninaEls.orderArticleSelect.value);
   if (!row) return;
   const computed = computeRow(row);
   const metric = computed.clusterMetricsCalc.find((item) => item.cluster === ninaEls.orderClusterSelect.value) || computed.clusterMetricsCalc[0];
@@ -605,6 +755,10 @@ function fillOrderRecommendation() {
     ninaEls.orderQtyInput.value = recommended;
   }
   ninaEls.orderPrioritySelect.value = computed.priorityBucket || "medium";
+  ninaEls.orderEtaInput.value = normalizeDateValue(metric?.eta || "");
+  if (!ninaEls.orderCommentInput.value) {
+    ninaEls.orderCommentInput.value = metric?.comment || "";
+  }
 }
 
 function saveOrderRequest(event) {
@@ -638,7 +792,10 @@ function resetOrderForm() {
 }
 
 function renderOrdersTable() {
-  const rows = ninaState.orderRequests.filter((item) => item.platform === ninaState.platform);
+  const rows = ninaState.orderRequests
+    .filter((item) => item.platform === ninaState.platform)
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
   ninaEls.ordersBody.innerHTML = rows.length ? rows.map((item) => `
     <tr>
       <td>${escapeHtml(formatDateTime(item.createdAt))}</td>
@@ -649,63 +806,19 @@ function renderOrdersTable() {
       <td>${escapeHtml(sourceLabel(item.source))}</td>
       <td>${escapeHtml(item.eta || "—")}</td>
       <td>${escapeHtml(item.comment || "—")}</td>
-    </tr>`).join("") : `<tr><td colspan="8">Пока нет сохраненных заявок.</td></tr>`;
-}
-
-function renderTopDeficits() {
-  const rows = getAllComputedRows().filter((row) => row.totalNeedCalc > 0).sort((a, b) => (b.totalNeedCalc || 0) - (a.totalNeedCalc || 0)).slice(0, 20);
-  ninaEls.topDeficitsList.innerHTML = rows.length ? rows.map((row) => `
-    <button type="button" class="deficit-item" data-top-deficit="${escapeHtmlAttr(row.sellerArticle)}">
-      <strong>${escapeHtml(row.sellerArticle)}</strong>
-      <div>${escapeHtml(row.name || "")}</div>
-      <div class="deficit-meta">
-        <span class="priority-pill priority-${row.priorityBucket || "low"}">${escapeHtml(row.priorityLabel || "—")}</span>
-        <span class="tag-pill">Нужно: ${numberFormat(row.totalNeedCalc || 0)}</span>
-        <span class="tag-pill">Спрос/д: ${numberFormat(row.totalAdjustedCalc || 0, 1)}</span>
-      </div>
-    </button>`).join("") : `<div class="deficit-item">По текущим данным дефицитов нет.</div>`;
-
-  ninaEls.topDeficitsList.querySelectorAll("[data-top-deficit]").forEach((button) => {
-    button.addEventListener("click", () => {
-      ninaState.selectedArticle = button.dataset.topDeficit;
-      ninaEls.orderArticleSelect.value = ninaState.selectedArticle;
-      populateOrderClusters();
-      fillOrderRecommendation();
-      switchPage("orders");
-    });
-  });
-}
-
-function renderInputsTable() {
-  const rows = Object.entries(ninaState.manualInputs)
-    .filter(([key]) => key.startsWith(`${ninaState.platform}__`))
-    .map(([key, value]) => {
-      const [, sellerArticle, cluster] = key.split("__");
-      return { sellerArticle, cluster, ...value };
-    })
-    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
-
-  ninaEls.inputsBody.innerHTML = rows.length ? rows.map((item) => `
-    <tr>
-      <td>${escapeHtml(ninaState.platform)}</td>
-      <td>${escapeHtml(item.sellerArticle)}</td>
-      <td>${escapeHtml(item.cluster)}</td>
-      <td class="num">${numberFormat(item.inTransit || 0)}</td>
-      <td class="num">${numberFormat(item.production || 0)}</td>
-      <td class="num">${numberFormat(item.procurement || 0)}</td>
-      <td class="num">${numberFormat(item.targetDays || ninaState.targetDays[ninaState.platform] || 21)}</td>
-      <td class="num">${numberFormat(item.seasonalityOverride || 0, 1)}</td>
-      <td>${escapeHtml(item.comment || "—")}</td>
-    </tr>`).join("") : `<tr><td colspan="9">Пока ручных данных нет.</td></tr>`;
+    </tr>
+  `).join("") : `<tr><td colspan="8">Пока нет сохраненных заявок.</td></tr>`;
 }
 
 function exportAllJson() {
   const payload = {
     exportedAt: new Date().toISOString(),
+    targetDays: ninaState.targetDays,
+    turnoverMode: ninaState.turnoverMode,
     manualInputs: ninaState.manualInputs,
     orderRequests: ninaState.orderRequests
   };
-  downloadBlob(JSON.stringify(payload, null, 2), `tekstilno-nina-${Date.now()}.json`, "application/json");
+  downloadBlob(JSON.stringify(payload, null, 2), `tekstilno-nina-backup-${Date.now()}.json`, "application/json");
 }
 
 function importAllJson(event) {
@@ -715,10 +828,15 @@ function importAllJson(event) {
   reader.onload = () => {
     try {
       const payload = JSON.parse(reader.result);
+      ninaState.targetDays = payload.targetDays || ninaState.targetDays;
+      ninaState.turnoverMode = payload.turnoverMode || ninaState.turnoverMode;
       ninaState.manualInputs = payload.manualInputs || {};
       ninaState.orderRequests = payload.orderRequests || [];
-      localStorage.setItem("tekstilno-nina-manual-inputs-v1", JSON.stringify(ninaState.manualInputs));
+      persistTargetDays();
+      persistTurnoverMode();
+      persistManualInputs();
       persistOrderRequests();
+      syncUiState();
       renderAll();
       showToast("JSON успешно импортирован.");
     } catch (error) {
@@ -729,33 +847,158 @@ function importAllJson(event) {
   event.target.value = "";
 }
 
-function exportStockCsv() {
-  const rows = [];
-  getAllComputedRows().forEach((row) => {
+function exportExcelWorkbook() {
+  const sheets = [
+    buildMatrixSheet("WB"),
+    buildMatrixSheet("Ozon"),
+    buildManualSheet(),
+    buildOrdersSheet()
+  ];
+  const xml = buildWorkbookXml(sheets);
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadBlob(xml, `tekstilno-nina-${stamp}.xls`, "application/vnd.ms-excel");
+  showToast("Excel-выгрузка скачана.");
+}
+
+function buildMatrixSheet(platform) {
+  const warehouseMap = getClusterWarehouseMap(platform);
+  const rows = [[
+    "Платформа", "Артикул", "Товар", "Категория", "Приоритет", "План месяца, шт", "План/день",
+    "Осн. склад", "Кластер", "Склады в кластере", "Заказы 7д", "Спрос 7д", "Спрос 14д", "Спрос 28д",
+    `Спрос активный (${getTurnoverModeForPlatform(platform)}д)`, "Запас", "В пути", "Производство", "Закупка", "Доступно",
+    "Обор. 7д", "Обор. 14д", "Обор. 28д", `Обор. активная (${getTurnoverModeForPlatform(platform)}д)`,
+    `Нужно (${getTurnoverModeForPlatform(platform)}д)`, "Целевые дни", "Дата прихода", "Комментарий", "Источник"
+  ]];
+
+  getAllComputedRows(platform).forEach((row) => {
     row.clusterMetricsCalc.forEach((metric) => {
-      rows.push([ninaState.platform, row.sellerArticle, row.name || "", metric.cluster, metric.orders7d || 0, metric.adjustedDailyCalc || 0, metric.stock || 0, metric.inTransit || 0, metric.production || 0, metric.procurement || 0, metric.coverage7DaysCalc || "", metric.coverage14DaysCalc || "", metric.recommendedQtyCalc || 0, row.mainWarehouseStock || 0]);
+      rows.push([
+        platform,
+        row.sellerArticle,
+        row.name || "",
+        row.category || "",
+        row.priorityLabel || "",
+        row.monthPlanUnitsTotal || 0,
+        row.currentPlanDay || 0,
+        row.mainWarehouseStock || 0,
+        metric.cluster,
+        Array.from(warehouseMap.get(metric.cluster) || []).join(", "),
+        metric.orders7d || 0,
+        metric.dailyDemand7 || 0,
+        metric.dailyDemand14 || 0,
+        metric.dailyDemand28 || 0,
+        metric.activeDailyDemand || 0,
+        metric.stock || 0,
+        metric.inTransit || 0,
+        metric.production || 0,
+        metric.procurement || 0,
+        metric.available || 0,
+        metric.coverage7DaysCalc ?? "",
+        metric.coverage14DaysCalc ?? "",
+        metric.coverage28DaysCalc ?? "",
+        metric.activeCoverage ?? "",
+        metric.recommendedQtyCalc || 0,
+        metric.targetDays || getTargetDaysForPlatform(platform),
+        metric.eta || "",
+        metric.comment || "",
+        metric.source || ""
+      ]);
     });
   });
-  downloadBlob(toCsv([["Платформа","Артикул","Товар","Кластер","Заказы 7д","План/д","Запас","В пути","Производство","Закупка","Покр.7","Покр.14","Нужно","Осн. склад"], ...rows]), `${slugify(ninaState.platform)}-cluster-stock.csv`, "text/csv;charset=utf-8");
+
+  return { name: `${platform}_матрица`, rows };
 }
 
-function exportOrdersCsv() {
-  const rows = ninaState.orderRequests.filter((item) => item.platform === ninaState.platform).map((item) => [formatDateTime(item.createdAt), item.platform, item.sellerArticle, item.cluster, item.recommendedQty || 0, item.qty || 0, sourceLabel(item.source), item.eta || "", item.comment || ""]);
-  downloadBlob(toCsv([["Дата","Платформа","Артикул","Кластер","Реком.","Заказать","Источник","Дата прихода","Комментарий"], ...rows]), `${slugify(ninaState.platform)}-orders.csv`, "text/csv;charset=utf-8");
-}
-
-function exportInputsCsv() {
-  const rows = Object.entries(ninaState.manualInputs)
-    .filter(([key]) => key.startsWith(`${ninaState.platform}__`))
-    .map(([key, value]) => {
-      const [, sellerArticle, cluster] = key.split("__");
-      return [ninaState.platform, sellerArticle, cluster, value.inTransit || 0, value.production || 0, value.procurement || 0, value.targetDays || "", value.seasonalityOverride || 0, value.comment || ""];
+function buildManualSheet() {
+  const rows = [[
+    "Платформа", "Артикул", "Кластер", "В пути", "Производство", "Закупка", "Целевые дни", "Коэф. сезона", "Дата прихода", "Комментарий", "Обновлено"
+  ]];
+  Object.entries(ninaState.manualInputs)
+    .sort((a, b) => String(b[1]?.updatedAt || "").localeCompare(String(a[1]?.updatedAt || "")))
+    .forEach(([key, value]) => {
+      const [platform, article, cluster] = key.split("__");
+      rows.push([
+        platform,
+        article,
+        cluster,
+        value.inTransit || 0,
+        value.production || 0,
+        value.procurement || 0,
+        value.targetDays || "",
+        value.seasonalityOverride || "",
+        value.eta || "",
+        value.comment || "",
+        value.updatedAt || ""
+      ]);
     });
-  downloadBlob(toCsv([["Платформа","Артикул","Кластер","В пути","Производство","Закупка","Целевые дни","Override","Комментарий"], ...rows]), `${slugify(ninaState.platform)}-inputs.csv`, "text/csv;charset=utf-8");
+  return { name: "Внесено", rows };
 }
 
-function toCsv(rows) {
-  return rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(";")).join("\n");
+function buildOrdersSheet() {
+  const rows = [[
+    "Дата", "Платформа", "Артикул", "Кластер", "Реком.", "Заказать", "Источник", "Приоритет", "Дата прихода", "Комментарий"
+  ]];
+  ninaState.orderRequests
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .forEach((item) => {
+      rows.push([
+        formatDateTime(item.createdAt),
+        item.platform,
+        item.sellerArticle,
+        item.cluster,
+        item.recommendedQty || 0,
+        item.qty || 0,
+        sourceLabel(item.source),
+        item.priority || "",
+        item.eta || "",
+        item.comment || ""
+      ]);
+    });
+  return { name: "Заявки", rows };
+}
+
+function buildWorkbookXml(sheets) {
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  <Styles>
+    <Style ss:ID="Default" ss:Name="Normal">
+      <Alignment ss:Vertical="Top" ss:WrapText="1"/>
+      <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="10"/>
+    </Style>
+    <Style ss:ID="Header">
+      <Font ss:Bold="1" ss:FontName="Calibri" x:Family="Swiss" ss:Size="10"/>
+      <Interior ss:Color="#DDE7F8" ss:Pattern="Solid"/>
+      <Alignment ss:Vertical="Top" ss:WrapText="1"/>
+    </Style>
+  </Styles>
+  ${sheets.map((sheet) => {
+    const safeName = xmlEscape(String(sheet.name || "Sheet")).slice(0, 31);
+    const rowsXml = sheet.rows.map((row, rowIndex) => {
+      return `<Row>${row.map((cell) => {
+        const isNumber = typeof cell === "number" && Number.isFinite(cell);
+        const type = isNumber ? "Number" : "String";
+        const style = rowIndex === 0 ? ` ss:StyleID="Header"` : "";
+        const value = isNumber ? String(cell).replace(",", ".") : xmlEscape(String(cell ?? ""));
+        return `<Cell${style}><Data ss:Type="${type}">${value}</Data></Cell>`;
+      }).join("")}</Row>`;
+    }).join("");
+    return `<Worksheet ss:Name="${safeName}"><Table>${rowsXml}</Table></Worksheet>`;
+  }).join("")}
+</Workbook>`;
+}
+
+function normalizeDateValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
 }
 
 function formatWarehouseLabel(value) {
@@ -777,7 +1020,10 @@ function numberFormat(value, digits = 0) {
   if (value == null || value === "") return "—";
   const num = Number(value);
   if (Number.isNaN(num)) return "—";
-  return new Intl.NumberFormat("ru-RU", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(num);
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  }).format(num);
 }
 
 function numberOrDash(value) {
@@ -785,9 +1031,9 @@ function numberOrDash(value) {
   return numberFormat(value, 1);
 }
 
-function countOrDash(value) {
+function numberOrDashWithDigits(value, digits = 1) {
   if (value == null || value === "") return "—";
-  return numberFormat(value);
+  return numberFormat(value, digits);
 }
 
 function roundNum(value, digits = 2) {
@@ -808,20 +1054,37 @@ function formatDateTime(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
-function slugify(value) {
-  return String(value).toLowerCase().replace(/\s+/g, "-").replace(/[^a-zа-я0-9_-]+/gi, "");
+function xmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function escapeHtml(value) {
   return String(value ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function escapeHtmlAttr(value) {
   return escapeHtml(value).replace(/'/g, "&#39;");
+}
+
+function cssEscape(value) {
+  return String(value).replace(/"/g, '\\"');
 }
 
 function downloadBlob(content, filename, mimeType) {
@@ -849,5 +1112,7 @@ function showToast(message) {
   ninaEls.toast.hidden = false;
   ninaEls.toast.textContent = message;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { ninaEls.toast.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => {
+    ninaEls.toast.hidden = true;
+  }, 2200);
 }
