@@ -42,7 +42,7 @@ const VIEW_META = {
   },
   supply: {
     title: 'Кластера и отгрузка',
-    subtitle: 'Короткий вход в поставки: потребность, дефициты и путь в полную матрицу Нины.'
+    subtitle: 'Поставки снова полные: короткий срез сверху и вся матрица кластеров/складов прямо внутри портала.'
   },
   control: {
     title: 'Продажи и маржа',
@@ -74,8 +74,8 @@ function cacheElements() {
     'roleSelect','mainNav','contourStrip','storageModeLabel','currentDateLabel','pageTitle','pageSubtitle','workDateInput','platformToggle','syncBanner',
     'dashboardCards','peopleFocus','activityFeed','dashboardDeviations','dashboardSupply',
     'taskPackMeta','taskManagerCard','tasksTableWrap','taskStatusFilter','taskSearchInput','saveDailySummaryBtn',
-    'supplyCards','supplyDeficitsTable','clusterNeedTable',
-    'chartArticleSelect','metricToggle','chartMeta','lineChart','marginCompareTable','controlDeviationTable',
+    'supplyCards','supplyDeficitsTable','clusterNeedTable','supplyMatrixFrame','openSupplyFullLink',
+    'chartArticleSelect','metricToggle','chartMeta','lineChart','marginCompareTable','controlDeviationTable','pnlCards','pnlFocusTable',
     'reportSummary','reportsTable','exportReportsBtn','importReportsInput'
   ];
   ids.forEach((id) => { els[id] = document.getElementById(id); });
@@ -206,6 +206,7 @@ function renderAll() {
   els.workDateInput.value = appState.workDate;
   els.storageModeLabel.textContent = descriptor.label;
   els.currentDateLabel.textContent = formatDate(appState.workDate);
+  els.syncBanner.classList.toggle('shared', !!descriptor.shared);
   els.syncBanner.innerHTML = descriptor.shared
     ? `<strong>Общий журнал подключён.</strong> ${escapeHtml(descriptor.note)}`
     : `<strong>Внимание:</strong> ${escapeHtml(descriptor.note)} Подключи backend в config.js, чтобы отчёты и заявки были видны всем.`;
@@ -308,6 +309,34 @@ function getRowPlanMarginDay(article) {
 function getRowPlanRevenueDay(article) {
   const monthKey = getMonthKey();
   return Number(article.monthlyPlan?.[monthKey]?.planRevenueDay || article.metrics?.planRevenueDay || 0);
+}
+
+function getRowPlanMarginPct(article) {
+  const monthKey = getMonthKey();
+  return Number(article.monthlyPlan?.[monthKey]?.planMarginPct || article.planMarginPct || 0);
+}
+
+function getRowNetMarginPct(article) {
+  return Number(article.metrics?.netMarginPct || article.netMarginPct || getRowPlanMarginPct(article) || 0);
+}
+
+function getEstimatedFactMarginDay(article) {
+  const revenue = getRowFactRevenue(article);
+  const pct = getRowPlanMarginPct(article);
+  return revenue * pct / 100;
+}
+
+function getEstimatedFactPnlDay(article) {
+  const revenue = getRowFactRevenue(article);
+  const pct = getRowNetMarginPct(article);
+  return revenue * pct / 100;
+}
+
+function getRowPlanPnlDay(article) {
+  const revenuePlan = getRowPlanRevenueDay(article);
+  const pct = getRowNetMarginPct(article);
+  if (!revenuePlan) return getRowPlanMarginDay(article);
+  return revenuePlan * pct / 100;
 }
 
 function getRowFactDay(article) {
@@ -616,10 +645,13 @@ function renderSupplyView() {
   const platforms = appState.platform === 'All' ? ['WB', 'Ozon'] : [appState.platform];
   const supplyRows = getTopSupplyRows(platforms);
   const clusterAgg = getClusterNeedRows(platforms);
+  const matrixPlatform = appState.platform === 'Ozon' ? 'Ozon' : 'WB';
+  const frameSrc = `nina.html?embed=1&platform=${encodeURIComponent(matrixPlatform)}`;
+
   cards.push({ label: 'Топ дефицитов', value: supplyRows.length, note: 'Артикулы с потребностью > 0' });
   cards.push({ label: 'Реком. к заказу', value: formatNum(sum(supplyRows.map((row) => row.totalNeed))), note: 'Суммарно по выбранным площадкам', highlight: true });
   cards.push({ label: 'Кластеры в фокусе', value: clusterAgg.length, note: 'Есть потребность или риск' });
-  cards.push({ label: 'Матрица Нины', value: 'Full', note: 'Глубокий экран остается отдельным маршрутом' });
+  cards.push({ label: 'Полная матрица', value: matrixPlatform, note: 'Кластеры и склады снова встроены в раздел поставок' });
   els.supplyCards.innerHTML = cards.map((card) => `
     <article class="kpi-card ${card.highlight ? 'highlight' : ''}">
       <span>${card.label}</span>
@@ -657,6 +689,14 @@ function renderSupplyView() {
     stock: formatNum(row.stock),
     daily: formatNum(row.daily, 1)
   })));
+
+  if (els.supplyMatrixFrame?.dataset.src !== frameSrc) {
+    els.supplyMatrixFrame.src = frameSrc;
+    els.supplyMatrixFrame.dataset.src = frameSrc;
+  }
+  if (els.openSupplyFullLink) {
+    els.openSupplyFullLink.href = `nina.html?platform=${encodeURIComponent(matrixPlatform)}`;
+  }
 }
 
 function getTopSupplyRows(platforms = ['WB', 'Ozon']) {
@@ -702,11 +742,28 @@ function getClusterNeedRows(platforms = ['WB', 'Ozon']) {
 function renderControlView() {
   const deviations = getTopDeviations();
   const compareRows = getMarginCompareRows();
+  const pnlCards = [
+    { label: 'План маржи / день', value: formatMoney(sum(deviations.map((row) => row.marginDay))), note: 'Сумма по текущему срезу' },
+    { label: 'Факт маржи / день', value: formatMoney(sum(deviations.map((row) => row.factMarginDay))), note: 'Расчёт по фактической выручке', highlight: true },
+    { label: 'План PnL / день', value: formatMoney(sum(deviations.map((row) => row.planPnlDay))), note: 'Плановая чистая прибыль' },
+    { label: 'Факт PnL / день', value: formatMoney(sum(deviations.map((row) => row.factPnlDay))), note: 'Оценка по netMarginPct / planMarginPct' }
+  ];
+  els.pnlCards.innerHTML = pnlCards.map((card) => `
+    <article class="kpi-card ${card.highlight ? 'highlight' : ''}">
+      <span>${card.label}</span>
+      <strong>${card.value}</strong>
+      <small>${card.note}</small>
+    </article>
+  `).join('');
+
   populateChartSelector(deviations);
   const selected = deviations.find((row) => row.sellerArticle === appState.selectedChartArticle) || deviations[0] || null;
   if (selected) appState.selectedChartArticle = selected.sellerArticle;
-  els.chartMeta.textContent = selected ? `${selected.channel} · ${selected.sellerArticle} · план/д ${formatNum(selected.planDay,1)} · факт/д ${formatNum(selected.factDay,1)} · Δ ${formatPct(selected.deltaPct)}` : 'Нет данных для графика';
+  els.chartMeta.textContent = selected
+    ? `${selected.channel} · ${selected.sellerArticle} · план/д ${formatNum(selected.planDay,1)} · факт/д ${formatNum(selected.factDay,1)} · Δ ${formatPct(selected.deltaPct)} · PnL ${formatMoney(selected.factPnlDay)}`
+    : 'Нет данных для графика';
   els.lineChart.innerHTML = selected ? buildLineChart(selected) : '<div class="muted">Нет данных</div>';
+
   els.controlDeviationTable.innerHTML = renderSimpleTable([
     { key: 'article', label: 'Артикул' },
     { key: 'platform', label: 'Площадка' },
@@ -714,7 +771,8 @@ function renderControlView() {
     { key: 'fact', label: 'Факт/д' },
     { key: 'delta', label: 'Δ' },
     { key: 'revenue', label: 'Выручка/д' },
-    { key: 'margin', label: 'Маржа/д' }
+    { key: 'margin', label: 'Маржа/д' },
+    { key: 'pnl', label: 'PnL/д' }
   ], deviations.slice(0, 12).map((row) => ({
     article: renderArticleIdentity(row, { showName: true }),
     platform: row.channel,
@@ -722,20 +780,40 @@ function renderControlView() {
     fact: formatNum(row.factDay, 1),
     delta: `<span class="${row.deltaPct < 0 ? 'negative' : 'positive'}">${formatPct(row.deltaPct)}</span>`,
     revenue: formatMoney(row.revenueDay),
-    margin: formatMoney(row.marginDay)
+    margin: `${formatMoney(row.factMarginDay)}<div class="muted">план ${formatMoney(row.marginDay)}</div>`,
+    pnl: `${formatMoney(row.factPnlDay)}<div class="muted">план ${formatMoney(row.planPnlDay)}</div>`
   })));
+
   els.marginCompareTable.innerHTML = renderSimpleTable([
     { key: 'article', label: 'Артикул' },
     { key: 'wb', label: 'WB' },
     { key: 'ozon', label: 'Ozon' },
     { key: 'margin', label: 'Маржа/д' },
-    { key: 'decision', label: 'Куда смотреть' }
+    { key: 'pnl', label: 'PnL/д' },
+    { key: 'decision', label: 'Куда грузить' }
   ], compareRows.slice(0, 10).map((row) => ({
     article: renderArticleIdentity(row, { showName: true }),
     wb: `Факт ${formatNum(row.wbFact,1)} / План ${formatNum(row.wbPlan,1)}`,
     ozon: `Факт ${formatNum(row.ozonFact,1)} / План ${formatNum(row.ozonPlan,1)}`,
-    margin: `WB ${formatMoney(row.wbMargin)} · Ozon ${formatMoney(row.ozonMargin)}`,
+    margin: `WB ${formatMoney(row.wbMarginFact)}<div class="muted">план ${formatMoney(row.wbMarginPlan)}</div>Ozon ${formatMoney(row.ozonMarginFact)}<div class="muted">план ${formatMoney(row.ozonMarginPlan)}</div>`,
+    pnl: `WB ${formatMoney(row.wbPnlFact)}<div class="muted">план ${formatMoney(row.wbPnlPlan)}</div>Ozon ${formatMoney(row.ozonPnlFact)}<div class="muted">план ${formatMoney(row.ozonPnlPlan)}</div>`,
     decision: `<strong>${escapeHtml(row.decision)}</strong><span class="muted">${escapeHtml(row.note)}</span>`
+  })));
+
+  els.pnlFocusTable.innerHTML = renderSimpleTable([
+    { key: 'article', label: 'Артикул' },
+    { key: 'wb_pnl', label: 'WB PnL/д' },
+    { key: 'ozon_pnl', label: 'Ozon PnL/д' },
+    { key: 'wb_margin', label: 'WB маржа/д' },
+    { key: 'ozon_margin', label: 'Ozon маржа/д' },
+    { key: 'focus', label: 'Фокус' }
+  ], compareRows.slice(0, 12).map((row) => ({
+    article: renderArticleIdentity(row, { showName: true }),
+    wb_pnl: `${formatMoney(row.wbPnlFact)}<div class="muted">план ${formatMoney(row.wbPnlPlan)}</div>`,
+    ozon_pnl: `${formatMoney(row.ozonPnlFact)}<div class="muted">план ${formatMoney(row.ozonPnlPlan)}</div>`,
+    wb_margin: `${formatMoney(row.wbMarginFact)}<div class="muted">план ${formatMoney(row.wbMarginPlan)}</div>`,
+    ozon_margin: `${formatMoney(row.ozonMarginFact)}<div class="muted">план ${formatMoney(row.ozonMarginPlan)}</div>`,
+    focus: `<strong>${escapeHtml(row.decision)}</strong><span class="muted">${escapeHtml(row.note)}</span>`
   })));
 }
 
@@ -768,6 +846,9 @@ function getTopDeviations() {
         factDay,
         deltaPct,
         marginDay: getRowPlanMarginDay(article),
+        factMarginDay: getEstimatedFactMarginDay(article),
+        planPnlDay: getRowPlanPnlDay(article),
+        factPnlDay: getEstimatedFactPnlDay(article),
         revenueDay: getRowFactRevenue(article)
       });
     });
@@ -779,33 +860,78 @@ function getMarginCompareRows() {
   const wbEntry = getManagerByChannel('WB');
   const ozEntry = getManagerByChannel('Ozon');
   if (!wbEntry || !ozEntry) return [];
-  const monthKey = getMonthKey();
   const wbMap = new Map((wbEntry[1].articles || []).map((item) => [item.sellerArticle, item]));
   const rows = [];
+
   (ozEntry[1].articles || []).forEach((ozItem) => {
     const wbItem = wbMap.get(ozItem.sellerArticle);
     if (!wbItem) return;
-    const wbMargin = Number(wbItem.monthlyPlan?.[monthKey]?.planMarginIncomeDay || 0);
-    const ozMargin = Number(ozItem.monthlyPlan?.[monthKey]?.planMarginIncomeDay || 0);
+
     const wbPlan = getRowPlanDay(wbItem);
     const ozonPlan = getRowPlanDay(ozItem);
     const wbFact = getRowFactDay(wbItem);
     const ozonFact = getRowFactDay(ozItem);
-    const wbScore = wbMargin * (wbPlan ? Math.min(1.5, wbFact / wbPlan) : 1);
-    const ozScore = ozMargin * (ozonPlan ? Math.min(1.5, ozonFact / ozonPlan) : 1);
-    const decision = wbScore > ozScore ? 'Фокус на WB' : 'Фокус на Ozon';
-    const note = wbScore > ozScore
-      ? 'WB сейчас дает лучшую ожидаемую маржу с учетом темпа.'
-      : 'Ozon сейчас выглядит выгоднее по марже и текущему темпу.';
+    const wbMarginPlan = getRowPlanMarginDay(wbItem);
+    const ozonMarginPlan = getRowPlanMarginDay(ozItem);
+    const wbMarginFact = getEstimatedFactMarginDay(wbItem);
+    const ozonMarginFact = getEstimatedFactMarginDay(ozItem);
+    const wbPnlPlan = getRowPlanPnlDay(wbItem);
+    const ozonPnlPlan = getRowPlanPnlDay(ozItem);
+    const wbPnlFact = getEstimatedFactPnlDay(wbItem);
+    const ozonPnlFact = getEstimatedFactPnlDay(ozItem);
+    const wbGap = wbPlan - wbFact;
+    const ozGap = ozonPlan - ozonFact;
+
+    let decisionKey = 'balanced';
+    let decision = 'Смотреть обе площадки';
+    let note = 'PnL и маржа близки: решение зависит от остатков и ограничений по поставке.';
+
+    if (wbPnlFact > ozonPnlFact * 1.07) {
+      decisionKey = 'wb';
+      decision = 'Фокус на WB';
+      note = wbGap > 0
+        ? 'WB сейчас дает выше чистую прибыль и ещё не добирает план.'
+        : 'WB сейчас прибыльнее по чистой прибыли, даже если темп уже близок к плану.';
+    } else if (ozonPnlFact > wbPnlFact * 1.07) {
+      decisionKey = 'ozon';
+      decision = 'Фокус на Ozon';
+      note = ozGap > 0
+        ? 'Ozon сейчас дает выше чистую прибыль и ещё не добирает план.'
+        : 'Ozon сейчас прибыльнее по чистой прибыли, даже если темп уже близок к плану.';
+    } else if (wbMarginFact > ozonMarginFact) {
+      decisionKey = 'wb';
+      decision = 'WB чуть сильнее';
+      note = 'По чистой прибыли площадки рядом, но у WB выше маржинальный эффект по факту.';
+    } else if (ozonMarginFact > wbMarginFact) {
+      decisionKey = 'ozon';
+      decision = 'Ozon чуть сильнее';
+      note = 'По чистой прибыли площадки рядом, но у Ozon выше маржинальный эффект по факту.';
+    }
+
     rows.push({
       sellerArticle: ozItem.sellerArticle,
+      wbArticle: wbItem.wbArticle || '',
+      ozonArticle: ozItem.ozonProductId || '',
       name: ozItem.name || wbItem.name || '—',
-      wbMargin, ozonMargin: ozMargin,
-      wbPlan, ozonPlan, wbFact, ozonFact,
-      decision, note,
-      scoreDiff: Math.abs(wbScore - ozScore)
+      wbPlan,
+      ozonPlan,
+      wbFact,
+      ozonFact,
+      wbMarginPlan,
+      ozonMarginPlan,
+      wbMarginFact,
+      ozonMarginFact,
+      wbPnlPlan,
+      ozonPnlPlan,
+      wbPnlFact,
+      ozonPnlFact,
+      decision,
+      decisionKey,
+      note,
+      scoreDiff: Math.abs(wbPnlFact - ozonPnlFact) + Math.abs(wbMarginFact - ozonMarginFact) * 0.3
     });
   });
+
   return rows.sort((a, b) => b.scoreDiff - a.scoreDiff);
 }
 
@@ -816,7 +942,7 @@ function buildLineChart(row) {
   if (!articleSeries.length || !dates.length) {
     return '<div class="muted">Для графика не хватает истории.</div>';
   }
-  const planLevel = appState.metric === 'orders' ? row.planDay : getRowPlanRevenue(findArticle(row.channel, row.sellerArticle));
+  const planLevel = appState.metric === 'orders' ? row.planDay : getRowPlanRevenueDay(findArticle(row.channel, row.sellerArticle));
   const planSeries = articleSeries.map(() => planLevel || 0);
   const width = 900;
   const height = 260;

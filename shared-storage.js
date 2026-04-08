@@ -1,5 +1,14 @@
 (function (global) {
-  const sessionStore = global.__TEKSTILNO_SESSION_STORE__ || (global.__TEKSTILNO_SESSION_STORE__ = {
+  let rootWindow = global;
+  try {
+    if (global.top && global.top.location && global.top.location.origin === global.location.origin) {
+      rootWindow = global.top;
+    }
+  } catch (error) {
+    rootWindow = global;
+  }
+
+  const sessionStore = rootWindow.__TEKSTILNO_SESSION_STORE__ || (rootWindow.__TEKSTILNO_SESSION_STORE__ = {
     reports: [],
     tasks: [],
     supplyManual: [],

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Текстильно · Portal UX Review</title>
-  <meta name="description" content="UX-review версия портала Текстильно: контуры задач, поставок, контроля и отчетности в одном понятном каркасе." />
+  <title>Текстильно · Portal v24</title>
+  <meta name="description" content="Портал Текстильно: задачи менеджеров, кластера и поставки, продажи, PnL и журнал сдачи." />
   <link rel="stylesheet" href="portal.css" />
   <script src="config.js"></script>
   <script defer src="shared-storage.js"></script>
@@ -17,7 +17,7 @@
         <div class="brand-mark">Т</div>
         <div>
           <div class="brand-name">Текстильно</div>
-          <div class="brand-sub">Portal UX Review</div>
+          <div class="brand-sub">Portal v24 · tasks / supply / pnl / reports</div>
         </div>
       </div>
 
@@ -34,23 +34,23 @@
       </section>
 
       <nav class="main-nav" id="mainNav">
-        <button class="nav-link active" data-view="dashboard"><span>Сегодня</span><small>Куда смотреть в первую очередь</small></button>
-        <button class="nav-link" data-view="tasks"><span>Задачи менеджеров</span><small>WB и Ozon · пакет 20 SKU</small></button>
-        <button class="nav-link" data-view="supply"><span>Кластера и отгрузка</span><small>Матрица, потребность, заявки</small></button>
-        <button class="nav-link" data-view="control"><span>Продажи и маржа</span><small>План, факт, PnL, фокус</small></button>
-        <button class="nav-link" data-view="reports"><span>Журнал сдачи</span><small>Кто и что сохранил</small></button>
+        <button class="nav-link active" data-view="dashboard"><span>1. Обзор дня</span><small>Куда смотреть в первую очередь</small></button>
+        <button class="nav-link" data-view="tasks"><span>2. Задачи менеджеров</span><small>WB / Ozon · фиксированные 20 SKU</small></button>
+        <button class="nav-link" data-view="supply"><span>3. Кластера и поставки</span><small>Полная матрица, склады, потребность, заявки</small></button>
+        <button class="nav-link" data-view="control"><span>4. Продажи, маржа и PnL</span><small>План / факт / прибыль / куда грузить</small></button>
+        <button class="nav-link" data-view="reports"><span>5. Журнал сдачи</span><small>Что реально сохранили и кто это сделал</small></button>
       </nav>
 
       <section class="side-section compact-cards">
         <article class="mini-card">
           <span>Режим хранения</span>
           <strong id="storageModeLabel">—</strong>
-          <small>Теперь портал ждёт общий backend. Без него запись идёт только в текущую сессию, без localStorage.</small>
+          <small>Локальное хранение больше не основное. Для общей видимости подключается shared backend.</small>
         </article>
         <article class="mini-card">
           <span>Дата проверки</span>
           <strong id="currentDateLabel">—</strong>
-          <small>Меняй дату — и портал пересчитает пакеты по 20 артикулов.</small>
+          <small>Дата влияет на пакеты 20 артикулов и на текущие срезы контроля.</small>
         </article>
       </section>
     </aside>
@@ -59,8 +59,8 @@
       <header class="topbar">
         <div>
           <div class="eyebrow">Контуры портала</div>
-          <h1 id="pageTitle">Обзор</h1>
-          <p id="pageSubtitle">Собрали один понятный каркас: задачи, поставки, контроль продаж и видимость отчетности.</p>
+          <h1 id="pageTitle">Обзор дня</h1>
+          <p id="pageSubtitle">Один портал без каши: задачи, поставки, продажи, PnL и журнал сдачи.</p>
         </div>
         <div class="topbar-actions">
           <label class="field compact">
@@ -72,30 +72,30 @@
             <button class="seg-btn" data-platform="WB" type="button">WB</button>
             <button class="seg-btn" data-platform="Ozon" type="button">Ozon</button>
           </div>
-          <a class="btn btn-primary" href="nina.html">Открыть полную матрицу поставок</a>
+          <a class="btn btn-primary" id="openSupplyFullLink" href="nina.html">Открыть полную матрицу поставок</a>
         </div>
       </header>
 
       <section class="sync-banner" id="syncBanner">
-        <strong>Важно:</strong> это review-сборка для проверки удобства. Она показывает, что именно сохранено и кем, но общая центральная синхронизация появится после подключения Supabase.
+        <strong>Важно:</strong> сейчас портал показывает, какой режим хранения подключён. Если backend не настроен, banner честно скажет, что записи пока не общие.
       </section>
 
       <section class="contour-strip" id="contourStrip">
         <button class="contour-tile active" data-view="tasks" type="button">
-          <strong>1. Задачи менеджеров</strong>
-          <small>WB / Ozon раздельно, пакет 20 артикулов, статусы и комментарии.</small>
+          <strong>Задачи менеджеров</strong>
+          <small>Раздельно WB / Ozon, пакет 20 артикулов и прозрачный статус.</small>
         </button>
         <button class="contour-tile" data-view="supply" type="button">
-          <strong>2. Кластера и отгрузка</strong>
-          <small>Матрица Нины, потребность по кластерам и заявки на товар.</small>
+          <strong>Кластера и поставки</strong>
+          <small>Полная матрица обратно внутри портала, а не только рекомендации.</small>
         </button>
         <button class="contour-tile" data-view="control" type="button">
-          <strong>3. Продажи / маржа / PnL</strong>
-          <small>Сравнение WB и Ozon, отклонения к плану и куда выгоднее грузить.</small>
+          <strong>PnL и маржа</strong>
+          <small>План / факт / чистая прибыль и решение, куда выгоднее грузить.</small>
         </button>
         <button class="contour-tile" data-view="reports" type="button">
-          <strong>4. Журнал сдачи</strong>
-          <small>Кто сохранил отчёт, когда и по какому контуру.</small>
+          <strong>Журнал отчётности</strong>
+          <small>Проверка сохранений: кто, что и когда записал.</small>
         </button>
       </section>
 
@@ -107,8 +107,8 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2>Сегодня по людям</h2>
-                  <p>Кому какой контур открыть первым и где уже есть красные сигналы.</p>
+                  <h2>Фокус по людям</h2>
+                  <p>Кому какой контур открывать первым и где уже горит красная зона.</p>
                 </div>
               </div>
               <div id="peopleFocus" class="stack-list"></div>
@@ -118,7 +118,7 @@
               <div class="panel-head">
                 <div>
                   <h2>Последние сохранения</h2>
-                  <p>Даже в review-режиме видно, что именно сохранили, а не «куда-то ушло».</p>
+                  <p>Не «куда-то ушло», а видно конкретную запись, автора и контур.</p>
                 </div>
               </div>
               <div id="activityFeed" class="activity-feed"></div>
@@ -129,8 +129,8 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2>Топ-5 отклонений</h2>
-                  <p>Что сильнее всего проседает к плану на выбранную дату.</p>
+                  <h2>Топ-5 отклонений к плану</h2>
+                  <p>Что сильнее всего проседает по темпу и марже.</p>
                 </div>
               </div>
               <div id="dashboardDeviations" class="simple-table-wrap"></div>
@@ -140,7 +140,7 @@
               <div class="panel-head">
                 <div>
                   <h2>Топ дефицитов по поставке</h2>
-                  <p>Куда сейчас чаще всего не хватает товара по кластерной логике.</p>
+                  <p>Что первым делом смотреть координатору поставок.</p>
                 </div>
               </div>
               <div id="dashboardSupply" class="simple-table-wrap"></div>
@@ -185,10 +185,10 @@
             <article class="panel">
               <div class="panel-head">
                 <div>
-                  <h2>Куда сейчас не хватает товара</h2>
-                  <p>Топ артикулов по суммарной потребности и главный кластерный провал.</p>
+                  <h2>Топ дефицитов</h2>
+                  <p>Короткий управленческий срез до полной матрицы: куда сейчас не хватает товара.</p>
                 </div>
-                <a class="btn btn-ghost" href="nina.html">Перейти в матрицу</a>
+                <a class="btn btn-ghost" href="nina.html">Открыть отдельно</a>
               </div>
               <div id="supplyDeficitsTable" class="simple-table-wrap"></div>
             </article>
@@ -197,21 +197,35 @@
               <div class="panel-head">
                 <div>
                   <h2>Потребность по кластерам</h2>
-                  <p>Компактно, чтобы понять, куда смотреть раньше полной матрицы.</p>
+                  <p>Суммарно по кластерам: нужно, запас, спрос/день.</p>
                 </div>
               </div>
               <div id="clusterNeedTable" class="simple-table-wrap"></div>
             </article>
           </section>
+
+          <section class="panel panel-margin supply-matrix-panel">
+            <div class="panel-head panel-head-spread">
+              <div>
+                <h2>Полная форма кластеров и поставок</h2>
+                <p>Возвращена прямо в портал: кластеры, склады, заказы 7/14/28, запас, производство, закупка, рекомендуемое количество и заявки.</p>
+              </div>
+              <a class="btn btn-ghost" href="nina.html">Открыть в отдельной вкладке</a>
+            </div>
+            <div class="embedded-note">Если нужно работать в полный экран или выгружать Excel для Вартана — открой матрицу отдельно. Ниже та же форма встроена внутрь портала.</div>
+            <iframe id="supplyMatrixFrame" class="supply-frame" src="nina.html?embed=1"></iframe>
+          </section>
         </section>
 
         <section class="view" id="view-control">
+          <section class="kpi-grid" id="pnlCards"></section>
+
           <section class="two-col control-top">
             <article class="panel chart-panel">
               <div class="panel-head panel-head-spread">
                 <div>
                   <h2>План vs факт по дням</h2>
-                  <p>Не весь зоопарк метрик, а одна понятная картинка по выбранному артикулу.</p>
+                  <p>Выбираем SKU и видим, как реально идет темп относительно плана.</p>
                 </div>
                 <div class="toolbar compact-toolbar">
                   <label class="field compact wide-select">
@@ -232,21 +246,33 @@
               <div class="panel-head">
                 <div>
                   <h2>Куда выгоднее грузить</h2>
-                  <p>Для SKU, которые есть и на WB, и на Ozon: смотрим плановую маржу и текущий темп.</p>
+                  <p>Смотрим не только темп, но и маржу/PnL: при ограниченном остатке куда реально выгоднее отдавать товар.</p>
                 </div>
               </div>
               <div id="marginCompareTable" class="simple-table-wrap"></div>
             </article>
           </section>
 
-          <section class="panel panel-margin">
-            <div class="panel-head">
-              <div>
-                <h2>Красная зона к плану</h2>
-                <p>Отдельно от дневных задач: это то, что уже мешает продажам и марже.</p>
+          <section class="two-col">
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>PnL и маржинальность в фокусе</h2>
+                  <p>Сводка по артикулам, где разница между WB и Ozon уже влияет на решение по отгрузке.</p>
+                </div>
               </div>
-            </div>
-            <div id="controlDeviationTable" class="simple-table-wrap"></div>
+              <div id="pnlFocusTable" class="simple-table-wrap"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Красная зона к плану</h2>
+                  <p>Отдельно от дневных задач: это то, что уже бьет по продажам, марже и чистой прибыли.</p>
+                </div>
+              </div>
+              <div id="controlDeviationTable" class="simple-table-wrap"></div>
+            </article>
           </section>
         </section>
 

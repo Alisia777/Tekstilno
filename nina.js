@@ -20,6 +20,7 @@ let toastTimer = null;
 document.addEventListener("DOMContentLoaded", initNina);
 
 async function initNina() {
+  applyUrlPreset();
   cacheElements();
   bindEvents();
   ninaState.storage = createSharedStorage(ninaState.config);
@@ -27,6 +28,19 @@ async function initNina() {
   await refreshSharedState();
   syncUiState();
   renderAll();
+}
+
+function applyUrlPreset() {
+  const params = new URLSearchParams(window.location.search);
+  const embed = params.get('embed');
+  const platform = params.get('platform');
+  const page = params.get('page');
+  const turnover = Number(params.get('turnover'));
+
+  if (embed === '1') document.body.classList.add('embed-mode');
+  if (platform === 'WB' || platform === 'Ozon') ninaState.platform = platform;
+  if (page === 'matrix' || page === 'orders' || page === 'formula') ninaState.page = page;
+  if ([7, 14, 28].includes(turnover)) ninaState.turnoverMode[ninaState.platform] = turnover;
 }
 
 function cacheElements() {
