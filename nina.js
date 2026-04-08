@@ -109,6 +109,19 @@ async function loadData() {
     ninaEls.reportMonthBadge.value = ninaState.data.reportMonth || "—";
   } catch (error) {
     console.error(error);
+    if (ninaEls.matrixMeta) {
+      ninaEls.matrixMeta.textContent = `Ошибка загрузки матрицы: ${error.message}`;
+    }
+    if (ninaEls.selectedSubtitle) {
+      ninaEls.selectedSubtitle.textContent = 'Данные матрицы не загрузились.';
+    }
+    if (ninaEls.selectedArticleCard) {
+      ninaEls.selectedArticleCard.className = 'selected-card empty';
+      ninaEls.selectedArticleCard.textContent = 'Проверь наличие config.js и папки data в архиве портала.';
+    }
+    if (ninaEls.clusterGuide) {
+      ninaEls.clusterGuide.innerHTML = '<article class="cluster-guide-card"><strong>Нет данных</strong><span class="muted">Матрица не смогла загрузить JSON-файлы.</span></article>';
+    }
     showToast(`Не удалось загрузить данные: ${error.message}`);
   }
 }
@@ -496,10 +509,11 @@ function buildMatrixHead(clusters) {
   const clusterLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Доступно", "Обор.", "Расчёт", "Реком.", "Дата прихода", "Коммент", "Заявка"];
   const top = [
     `<th class="sticky-col col-article" rowspan="3">Артикул / размер</th>`,
-    `<th class="sticky-col-2 col-name" rowspan="3">Товар</th>`,
-    `<th class="sticky-col-3 col-priority" rowspan="3">Приоритет</th>`,
-    `<th class="sticky-col-4 col-planmonth" rowspan="3">План мес., шт</th>`,
-    `<th class="sticky-col-5 col-main" rowspan="3">Осн. склад</th>`,
+    `<th class="sticky-col-2 col-wb" rowspan="3">WB артикул</th>`,
+    `<th class="sticky-col-3 col-name" rowspan="3">Товар</th>`,
+    `<th class="sticky-col-4 col-priority" rowspan="3">Приоритет</th>`,
+    `<th class="sticky-col-5 col-planmonth" rowspan="3">План мес., шт</th>`,
+    `<th class="sticky-col-6 col-main" rowspan="3">Осн. склад</th>`,
     `<th class="group-head" colspan="${totalLabels.length}">ИТОГО</th>`
   ];
   clusters.forEach((cluster) => {

@@ -1,7 +1,7 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v24-supply-pnl",
-  storageMode: "shared-ready-v24",
+  siteVersion: "v26-focus-assignments",
+  storageMode: "shared-ready",
   planDataUrl: "data/article-plan.json",
   historyDataUrl: "data/history-data.json",
   ninaDataUrl: "data/nina-cluster-dashboard.json",

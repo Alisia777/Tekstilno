@@ -38,7 +38,7 @@ const VIEW_META = {
   },
   tasks: {
     title: 'Задачи менеджеров',
-    subtitle: 'WB и Ozon разведены по своим пакетам. Менеджер отмечает только статус и комментарий.'
+    subtitle: 'WB и Ozon разведены по своим пакетам. В работу попадают только артикулы с красной заливкой Вартана.'
   },
   supply: {
     title: 'Кластера и отгрузка',
@@ -128,16 +128,27 @@ function bindEvents() {
 
 async function loadData() {
   const { planDataUrl, historyDataUrl, ninaDataUrl, demoReportsUrl } = appState.config;
-  const [plan, history, nina, reportsDemo] = await Promise.all([
-    fetchJson(planDataUrl),
-    fetchJson(historyDataUrl),
-    fetchJson(ninaDataUrl),
-    fetchJson(demoReportsUrl)
-  ]);
-  appState.data.plan = plan;
-  appState.data.history = history;
-  appState.data.nina = nina;
-  appState.data.reportsDemo = reportsDemo;
+  try {
+    const [plan, history, nina, reportsDemo] = await Promise.all([
+      fetchJson(planDataUrl),
+      fetchJson(historyDataUrl),
+      fetchJson(ninaDataUrl),
+      fetchJson(demoReportsUrl)
+    ]);
+    appState.data.plan = plan;
+    appState.data.history = history;
+    appState.data.nina = nina;
+    appState.data.reportsDemo = reportsDemo;
+  } catch (error) {
+    console.error(error);
+    appState.data.plan = { cycleAnchorDate: appState.workDate, managers: {} };
+    appState.data.history = { wb: { articles: {} }, ozon: { articles: {} }, dates: [] };
+    appState.data.nina = { platforms: { WB: { clusters: [], rows: [] }, Ozon: { clusters: [], rows: [] } } };
+    appState.data.reportsDemo = [];
+    if (els.syncBanner) {
+      els.syncBanner.innerHTML = `<strong>Ошибка загрузки данных:</strong> ${escapeHtml(error.message)}. Проверь, что в архиве есть config.js и папка data.`;
+    }
+  }
 }
 
 async function fetchJson(url) {
@@ -255,6 +266,17 @@ function getCoordinatorEntry() {
   return Object.entries(getManagers()).find(([, manager]) => String(manager.role || '').toLowerCase().includes('координатор'));
 }
 
+function getTaskPool(manager) {
+  if (!manager) return [];
+  return Array.isArray(manager.focusArticles) && manager.focusArticles.length
+    ? manager.focusArticles
+    : (manager.articles || []);
+}
+
+function getFocusProgram(manager) {
+  return manager?.focusProgram || null;
+}
+
 function getMonthKey() {
   return (appState.workDate || '').slice(0, 7);
 }
@@ -273,15 +295,42 @@ function getBusinessDayOffset(anchorStr, dateStr) {
   return count;
 }
 
+function businessDayShift(startStr, offset) {
+  const cursor = new Date(`${startStr}T00:00:00`);
+  if (!offset) return startStr;
+  const step = offset > 0 ? 1 : -1;
+  let left = Math.abs(offset);
+  while (left > 0) {
+    cursor.setDate(cursor.getDate() + step);
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) left -= 1;
+  }
+  return cursor.toISOString().slice(0, 10);
+}
+
 function getPackForManager(managerName) {
   const manager = getManagers()[managerName];
-  if (!manager || !Array.isArray(manager.articles)) return { managerName, manager, packArticles: [], packNumber: 1, totalPacks: 1 };
-  const packSize = Number(manager.packSize || appState.data.plan.packSizeDefault || 20);
-  const totalPacks = Math.max(1, Math.ceil(manager.articles.length / packSize));
-  const offset = getBusinessDayOffset(appState.data.plan.cycleAnchorDate, appState.workDate);
-  const packNumber = ((offset % totalPacks) + totalPacks) % totalPacks + 1;
-  const packArticles = manager.articles.filter((article) => Number(article.packNumber || 1) === packNumber);
-  return { managerName, manager, packArticles, packNumber, totalPacks };
+  const taskPool = getTaskPool(manager);
+  if (!manager || !Array.isArray(taskPool)) {
+    return { managerName, manager, packArticles: [], packNumber: 1, totalPacks: 1, taskPoolCount: 0, packDate: appState.workDate, dueDate: appState.workDate, focusProgram: null };
+  }
+  const focusProgram = getFocusProgram(manager);
+  const packSize = Number(manager.focusPackSize || manager.packSize || appState.data.plan.packSizeDefault || 20);
+  const totalPacks = Math.max(1, Math.ceil(taskPool.length / packSize));
+  const anchorDate = focusProgram?.startDate || appState.data.plan.cycleAnchorDate || appState.workDate;
+  const offsetRaw = getBusinessDayOffset(anchorDate, appState.workDate);
+  const offset = Math.max(0, offsetRaw);
+  const packNumber = focusProgram?.locked
+    ? Math.min(totalPacks, offset + 1)
+    : (((offsetRaw % totalPacks) + totalPacks) % totalPacks + 1);
+  const packArticles = taskPool.filter((article, index) => {
+    const assignedPack = Number(article.focusMeta?.packNumber || article.packNumber || Math.ceil((index + 1) / packSize));
+    return assignedPack === packNumber;
+  });
+  const packMeta = focusProgram?.packs?.find((item) => Number(item.packNumber) === packNumber) || null;
+  const packDate = packMeta?.packDate || businessDayShift(anchorDate, packNumber - 1);
+  const dueDate = packMeta?.dueDate || businessDayShift(packDate, 4);
+  return { managerName, manager, packArticles, packNumber, totalPacks, taskPoolCount: taskPool.length, packDate, dueDate, focusProgram };
 }
 
 function getTaskRowsForCurrentSelection() {
@@ -557,11 +606,12 @@ function buildPersonCard(name, channel, packInfo) {
   const critical = packInfo.packArticles.filter((item) => item.priorityBucket === 'critical').length;
   const help = packInfo.packArticles.filter((item) => getTaskState(item).status === 'need_help').length;
   const plan = sum(packInfo.packArticles.map((item) => getRowPlanDay(item)));
+  const focusLabel = packInfo.focusProgram ? `Закреплено ${packInfo.taskPoolCount} SKU` : `${packInfo.taskPoolCount} SKU`;
   return {
     name,
     channel,
-    text: `Сегодня открыт пакет ${packInfo.packNumber}/${packInfo.totalPacks}. Внутри ${packInfo.packArticles.length} артикулов. Критичных: ${critical}.`,
-    stats: [`План/д: ${formatNum(plan, 1)}`, `Помощь: ${help}`]
+    text: `Открыт пакет ${packInfo.packNumber}/${packInfo.totalPacks}. В работе ${packInfo.packArticles.length} артикулов. Срок пакета: ${formatShortDate(packInfo.dueDate)}.`,
+    stats: [focusLabel, `План/д: ${formatNum(plan, 1)}`, `Помощь: ${help}`, `Критичных: ${critical}`]
   };
 }
 
@@ -572,27 +622,46 @@ function renderTasksView() {
   const rows = taskInfo.rows.filter((row) => {
     const state = getTaskState(row);
     const matchesStatus = statusFilter === 'all' || state.status === statusFilter;
-    const hay = `${row.sellerArticle} ${row.name} ${row.action} ${row.reason} ${row.wbArticle || ''} ${row.ozonProductId || row.ozonArticle || ''}`.toLowerCase();
+    const hay = `${row.sellerArticle} ${row.name} ${row.action} ${row.reason} ${row.focusSummary || ''} ${row.wbArticle || ''} ${row.ozonProductId || row.ozonArticle || ''}`.toLowerCase();
     const matchesQuery = !query || hay.includes(query);
     return matchesStatus && matchesQuery;
   });
   const statusCounts = countTaskStatuses(taskInfo.rows);
-  els.taskPackMeta.textContent = `Зафиксирован пакет ${taskInfo.packNumber}/${taskInfo.totalPacks} на ${formatDate(appState.workDate)}. Всего в пакете: ${taskInfo.rows.length}.`;
+  const focusNotes = taskInfo.focusProgram?.notes || [];
+  const sprint = taskInfo.focusProgram?.dailyTemplate || appState.data.plan?.focusPrograms?.dailyTemplate || [];
+  const managerTitle = taskInfo.managerName || '—';
+  const channelLabel = taskInfo.channel || '—';
+  els.taskPackMeta.textContent = `Закреплённый пакет ${taskInfo.packNumber}/${taskInfo.totalPacks} на ${formatDate(appState.workDate)}. Внутри ${taskInfo.rows.length} SKU из ${taskInfo.taskPoolCount}. Срок исполнения пакета: ${formatDate(taskInfo.dueDate)}.`;
   els.taskManagerCard.innerHTML = `
-    <h3>${escapeHtml(taskInfo.managerName || '—')} · ${escapeHtml(taskInfo.channel)}</h3>
-    <p>${escapeHtml(taskInfo.manager?.responsibility || '')}</p>
+    <div class="task-head-grid">
+      <div>
+        <h3>${escapeHtml(managerTitle)} · ${escapeHtml(channelLabel)}</h3>
+        <p>${escapeHtml(taskInfo.manager?.responsibility || '')}</p>
+      </div>
+      <div class="task-meta-chips">
+        <span class="tag-chip">Закреплено: ${taskInfo.taskPoolCount} SKU</span>
+        <span class="tag-chip">Пакет: ${taskInfo.packNumber}/${taskInfo.totalPacks}</span>
+        <span class="tag-chip">Старт: ${formatDate(taskInfo.packDate)}</span>
+        <span class="tag-chip danger">Срок: ${formatDate(taskInfo.dueDate)}</span>
+      </div>
+    </div>
     <p class="help-text">Статусы: не начато — ${statusCounts.todo}, в работе — ${statusCounts.in_progress}, готово — ${statusCounts.done}, нужна помощь — ${statusCounts.need_help}.</p>
+    ${focusNotes.length ? `<div class="manager-notes-list">${focusNotes.map((note) => `<div class="note-pill">${escapeHtml(note)}</div>`).join('')}</div>` : ''}
+    ${sprint.length ? `<div class="sprint-grid">${sprint.map((item) => `<article class="sprint-step"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.task)}</span></article>`).join('')}</div>` : ''}
   `;
   els.tasksTableWrap.innerHTML = `
-    <table class="tasks-table">
+    <table class="tasks-table tasks-focus-table">
       <thead>
         <tr>
-          <th>Артикул</th>
+          <th>Артикул / Ozon</th>
+          <th>WB арт.</th>
           <th>Товар</th>
           <th>Приоритет</th>
+          <th>Сигнал</th>
           <th>План/д</th>
           <th>Факт/д</th>
           <th>Маржа/д</th>
+          <th>Срок</th>
           <th>Что сделать</th>
           <th>Статус</th>
           <th>Комментарий</th>
@@ -620,15 +689,27 @@ function renderTasksView() {
 
 function renderTaskRow(row) {
   const state = getTaskState(row);
+  const focus = row.focusMeta || {};
+  const issueMetric = focus.issueMetric || 'В работе';
+  const summary = row.focusSummary || (row.action || '').split('. ')[0] || '—';
+  const dailySteps = Array.isArray(focus.dailyPlan) ? focus.dailyPlan.slice(0, 3).map((item) => item.title.replace('День ', 'Д')).join(' · ') : 'SEO · Контент · Цена · Локализация · Контроль';
+  const metricMeta = (focus.planDayMetric || focus.factDayMetric)
+    ? `план ${formatMaybeNum(focus.planDayMetric, 1)} / факт ${formatMaybeNum(focus.factDayMetric, 1)} в день`
+    : ((focus.planMonthMetric || focus.factMonthMetric)
+        ? `план ${formatMaybeNum(focus.planMonthMetric, 0)} / факт ${formatMaybeNum(focus.factMonthMetric, 0)} в месяц`
+        : 'Красная заливка Вартана');
   return `
     <tr>
-      <td>${renderArticleIdentity(row)}</td>
+      <td><strong>${escapeHtml(row.sellerArticle || '—')}</strong><div class="help-text">Ozon: ${escapeHtml(String(row.ozonProductId || row.ozonArticle || '—'))}</div></td>
+      <td><strong>${escapeHtml(String(row.wbArticle || '—'))}</strong></td>
       <td><strong>${escapeHtml(row.name || '—')}</strong><div class="help-text">${escapeHtml(row.category || '')}</div></td>
       <td><span class="badge ${row.priorityBucket}">${escapeHtml(row.priorityLabel || '—')}</span></td>
+      <td><span class="signal-pill">${escapeHtml(issueMetric)}</span><div class="help-text">${metricMeta}</div></td>
       <td>${formatNum(getRowPlanDay(row), 1)}</td>
       <td>${formatNum(getRowFactDay(row), 1)}</td>
       <td>${formatMoney(getRowPlanMarginDay(row))}</td>
-      <td><strong>${escapeHtml((row.action || '').split('. ')[0] || '—')}</strong><div class="help-text">${escapeHtml(row.reason || '')}</div></td>
+      <td><strong>${formatShortDate(focus.dueDate || row.focusDeadline || appState.workDate)}</strong><div class="help-text">старт ${formatShortDate(focus.packDate || row.focusStartDate || appState.workDate)}</div></td>
+      <td><strong>${escapeHtml(summary)}</strong><div class="help-text">${escapeHtml(row.reason || '')}</div><div class="task-chip-row">${dailySteps.split(' · ').map((item) => `<span class="task-mini-chip">${escapeHtml(item)}</span>`).join('')}</div></td>
       <td>
         <select class="inline-select task-status-input">
           ${['todo','in_progress','done','need_help'].map((key) => `<option value="${key}" ${state.status === key ? 'selected' : ''}>${statusLabel(key)}</option>`).join('')}
@@ -661,14 +742,16 @@ function renderSupplyView() {
   `).join('');
 
   els.supplyDeficitsTable.innerHTML = renderSimpleTable([
-    { key: 'article', label: 'Артикул' },
+    { key: 'article', label: 'Артикул / Ozon' },
+    { key: 'wb', label: 'WB арт.' },
     { key: 'platform', label: 'Площадка' },
     { key: 'need', label: 'Нужно' },
     { key: 'main', label: 'Осн. склад' },
     { key: 'cluster', label: 'Кластер' },
     { key: 'action', label: 'Действие' }
   ], supplyRows.slice(0, 12).map((row) => ({
-    article: renderArticleIdentity(row, { showName: true }),
+    article: `<strong>${escapeHtml(row.sellerArticle || '—')}</strong><div class="muted">Ozon: ${escapeHtml(String(row.ozonArticle || '—'))}</div>`,
+    wb: `<strong>${escapeHtml(String(row.wbArticle || '—'))}</strong>`,
     platform: row.channel,
     need: formatNum(row.totalNeed),
     main: formatNum(row.mainWarehouseStock),
@@ -1094,8 +1177,21 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function formatShortDate(value) {
+  if (!value) return '—';
+  const date = new Date(`${value}T00:00:00`);
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' }).format(date);
+}
+
 function formatNum(value, digits = 0) {
   const number = Number(value || 0);
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(number);
+}
+
+function formatMaybeNum(value, digits = 0) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value);
+  if (Number.isNaN(number)) return escapeHtml(String(value));
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(number);
 }
 
