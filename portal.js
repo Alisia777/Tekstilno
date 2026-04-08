@@ -1,3 +1,4 @@
+
 const appState = {
   config: window.APP_CONFIG || {},
   role: 'leader',
@@ -17,8 +18,9 @@ const appState = {
     nina: null,
     reportsDemo: []
   },
-  localTaskState: {},
-  localReports: [],
+  storage: null,
+  taskStateMap: {},
+  sharedReports: [],
   selectedChartArticle: null
 };
 
@@ -31,31 +33,25 @@ const ROLE_PRESETS = {
 
 const VIEW_META = {
   dashboard: {
-    title: 'Обзор',
-    subtitle: 'Сводка дня по людям, красной зоне, поставкам и видимости отчетности.'
+    title: 'Сегодня',
+    subtitle: 'Один понятный экран: кто в работе, где красная зона и что уже реально сохранено.'
   },
   tasks: {
-    title: 'Задачи',
-    subtitle: 'Фиксированный пакет из 20 артикулов на день. Менеджеру остаются только статус и комментарий.'
+    title: 'Задачи менеджеров',
+    subtitle: 'WB и Ozon разведены по своим пакетам. Менеджер отмечает только статус и комментарий.'
   },
   supply: {
-    title: 'Поставки',
-    subtitle: 'Кластерная потребность и путь в полную матрицу, без перегруза на первом экране.'
+    title: 'Кластера и отгрузка',
+    subtitle: 'Короткий вход в поставки: потребность, дефициты и путь в полную матрицу Нины.'
   },
   control: {
-    title: 'Контроль продаж',
-    subtitle: 'План, факт, маржа и решение, куда выгоднее направить ограниченный остаток.'
+    title: 'Продажи и маржа',
+    subtitle: 'План, факт, маржа, PnL и решение — куда выгоднее направить ограниченный остаток.'
   },
   reports: {
-    title: 'Отчеты',
-    subtitle: 'Ключевой экран для проверки: кто, что, когда и по какому контуру сохранил.'
+    title: 'Журнал сдачи',
+    subtitle: 'Главный экран проверки: кто, что и когда сохранил. Без ощущения, что отчёт «куда-то ушёл».'
   }
-};
-
-const STORAGE_KEYS = {
-  taskState: 'tekstilno_portal_v22_task_state',
-  reports: 'tekstilno_portal_v22_reports',
-  prefs: 'tekstilno_portal_v22_prefs'
 };
 
 const els = {};
@@ -64,16 +60,18 @@ document.addEventListener('DOMContentLoaded', initPortal);
 
 async function initPortal() {
   cacheElements();
-  hydrateLocalState();
   bindEvents();
+  appState.storage = createSharedStorage(appState.config);
   await loadData();
+  enrichCrossReferences();
+  await refreshSharedState();
   applyRolePreset(appState.role, false);
   renderAll();
 }
 
 function cacheElements() {
   const ids = [
-    'roleSelect','mainNav','storageModeLabel','currentDateLabel','pageTitle','pageSubtitle','workDateInput','platformToggle','syncBanner',
+    'roleSelect','mainNav','contourStrip','storageModeLabel','currentDateLabel','pageTitle','pageSubtitle','workDateInput','platformToggle','syncBanner',
     'dashboardCards','peopleFocus','activityFeed','dashboardDeviations','dashboardSupply',
     'taskPackMeta','taskManagerCard','tasksTableWrap','taskStatusFilter','taskSearchInput','saveDailySummaryBtn',
     'supplyCards','supplyDeficitsTable','clusterNeedTable',
@@ -84,69 +82,38 @@ function cacheElements() {
   els.views = Object.fromEntries([...document.querySelectorAll('.view')].map((node) => [node.id.replace('view-', ''), node]));
 }
 
-function hydrateLocalState() {
-  try {
-    appState.localTaskState = JSON.parse(localStorage.getItem(STORAGE_KEYS.taskState) || '{}');
-  } catch { appState.localTaskState = {}; }
-  try {
-    appState.localReports = JSON.parse(localStorage.getItem(STORAGE_KEYS.reports) || '[]');
-  } catch { appState.localReports = []; }
-  try {
-    const prefs = JSON.parse(localStorage.getItem(STORAGE_KEYS.prefs) || '{}');
-    if (prefs.role && ROLE_PRESETS[prefs.role]) appState.role = prefs.role;
-    if (prefs.platform) appState.platform = prefs.platform;
-    if (prefs.view && VIEW_META[prefs.view]) appState.view = prefs.view;
-    if (prefs.workDate) appState.workDate = prefs.workDate;
-    if (prefs.metric) appState.metric = prefs.metric;
-  } catch {}
-}
-
-function persistPrefs() {
-  localStorage.setItem(STORAGE_KEYS.prefs, JSON.stringify({
-    role: appState.role,
-    platform: appState.platform,
-    view: appState.view,
-    workDate: appState.workDate,
-    metric: appState.metric
-  }));
-}
-
-function persistTaskState() {
-  localStorage.setItem(STORAGE_KEYS.taskState, JSON.stringify(appState.localTaskState));
-}
-
-function persistReports() {
-  localStorage.setItem(STORAGE_KEYS.reports, JSON.stringify(appState.localReports));
+function bindViewSwitch(root) {
+  if (!root) return;
+  root.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-view]');
+    if (!button) return;
+    appState.view = button.dataset.view;
+    renderViewState();
+    renderCurrentView();
+  });
 }
 
 function bindEvents() {
   els.roleSelect.addEventListener('change', (e) => applyRolePreset(e.target.value));
-  els.mainNav.addEventListener('click', (e) => {
-    const btn = e.target.closest('.nav-link');
-    if (!btn) return;
-    appState.view = btn.dataset.view;
-    persistPrefs();
-    renderViewState();
-    renderCurrentView();
-  });
-  els.workDateInput.addEventListener('change', (e) => {
+  bindViewSwitch(els.mainNav);
+  bindViewSwitch(els.contourStrip);
+  els.workDateInput.addEventListener('change', async (e) => {
     appState.workDate = e.target.value;
-    persistPrefs();
+    await refreshSharedState();
     renderAll();
   });
   els.platformToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
     appState.platform = btn.dataset.platform;
-    persistPrefs();
     renderAll();
   });
   els.metricToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
     appState.metric = btn.dataset.metric;
-    persistPrefs();
     renderControlView();
+    renderViewState();
   });
   els.taskStatusFilter.addEventListener('change', renderTasksView);
   els.taskSearchInput.addEventListener('input', renderTasksView);
@@ -180,22 +147,68 @@ async function fetchJson(url) {
   return res.json();
 }
 
+function buildArticleLookup() {
+  const lookup = new Map();
+  const managers = appState.data.plan?.managers || {};
+  Object.values(managers).forEach((manager) => {
+    (manager.articles || []).forEach((article) => {
+      const key = String(article.sellerArticle || '').trim();
+      if (!key) return;
+      const prev = lookup.get(key) || {};
+      lookup.set(key, {
+        sellerArticle: key,
+        wbArticle: article.wbArticle || prev.wbArticle || article.platformArticle || '',
+        ozonArticle: article.ozonProductId || prev.ozonArticle || '',
+        wbName: article.channel === 'WB' ? (article.name || prev.wbName || '') : (prev.wbName || ''),
+        ozonName: article.channel === 'Ozon' ? (article.name || prev.ozonName || '') : (prev.ozonName || ''),
+        photoUrl: article.photoUrl || prev.photoUrl || ''
+      });
+    });
+  });
+  return lookup;
+}
+
+function enrichCrossReferences() {
+  const lookup = buildArticleLookup();
+  const platforms = appState.data.nina?.platforms || {};
+  Object.values(platforms).forEach((platformData) => {
+    (platformData.rows || []).forEach((row) => {
+      const meta = lookup.get(String(row.sellerArticle || '').trim()) || {};
+      row.wbArticle = row.wbArticle || meta.wbArticle || (row.channel === 'WB' ? row.platformArticle : '');
+      row.ozonArticle = row.ozonArticle || meta.ozonArticle || (row.channel === 'Ozon' ? row.platformArticle : '');
+      row.wbName = row.wbName || meta.wbName || '';
+      row.ozonName = row.ozonName || meta.ozonName || '';
+      row.photoUrl = row.photoUrl || meta.photoUrl || '';
+    });
+  });
+}
+
+async function refreshSharedState() {
+  const taskRows = await appState.storage.listTaskStates(appState.workDate);
+  appState.taskStateMap = Object.fromEntries((taskRows || []).map((item) => {
+    const article = item.seller_article || item.sellerArticle;
+    return [`${item.work_date}__${item.platform}__${article}`, { status: item.status || 'todo', comment: item.comment || '' }];
+  }));
+  appState.sharedReports = await appState.storage.listReports();
+}
+
 function applyRolePreset(role, rerender = true) {
   appState.role = role;
   const preset = ROLE_PRESETS[role] || ROLE_PRESETS.leader;
-  if (role === 'manager_wb' || role === 'manager_ozon') {
-    appState.platform = preset.defaultPlatform;
-  }
+  if (role === 'manager_wb' || role === 'manager_ozon') appState.platform = preset.defaultPlatform;
   appState.view = preset.defaultView;
   els.roleSelect.value = role;
-  persistPrefs();
   if (rerender) renderAll();
 }
 
 function renderAll() {
+  const descriptor = appState.storage?.getDescriptor?.() || { label: 'session-preview', note: 'Backend не подключён.' };
   els.workDateInput.value = appState.workDate;
-  els.storageModeLabel.textContent = appState.config.storageMode === 'demo-local' ? 'demo-local' : (appState.config.storageMode || 'local');
+  els.storageModeLabel.textContent = descriptor.label;
   els.currentDateLabel.textContent = formatDate(appState.workDate);
+  els.syncBanner.innerHTML = descriptor.shared
+    ? `<strong>Общий журнал подключён.</strong> ${escapeHtml(descriptor.note)}`
+    : `<strong>Внимание:</strong> ${escapeHtml(descriptor.note)} Подключи backend в config.js, чтобы отчёты и заявки были видны всем.`;
   renderViewState();
   renderPageMeta();
   renderDashboardView();
@@ -217,14 +230,16 @@ function renderCurrentView() {
 function renderViewState() {
   Object.entries(els.views).forEach(([key, node]) => node.classList.toggle('active', key === appState.view));
   [...els.mainNav.querySelectorAll('.nav-link')].forEach((node) => node.classList.toggle('active', node.dataset.view === appState.view));
+  if (els.contourStrip) [...els.contourStrip.querySelectorAll('[data-view]')].forEach((node) => node.classList.toggle('active', node.dataset.view === appState.view));
   [...els.platformToggle.querySelectorAll('.seg-btn')].forEach((node) => node.classList.toggle('active', node.dataset.platform === appState.platform));
 }
 
 function renderPageMeta() {
   const meta = VIEW_META[appState.view];
   const roleLabel = ROLE_PRESETS[appState.role]?.label || 'Режим';
-  els.pageTitle.textContent = `${meta.title}`;
-  els.pageSubtitle.textContent = `${meta.subtitle} Сейчас смотришь как: ${roleLabel}.`;
+  const platformLabel = appState.platform === 'All' ? 'Все площадки' : appState.platform;
+  els.pageTitle.textContent = meta.title;
+  els.pageSubtitle.textContent = `${meta.subtitle} Сейчас: ${roleLabel} · ${platformLabel}.`;
 }
 
 function getManagers() {
@@ -320,62 +335,92 @@ function getTaskStorageKey(article) {
 }
 
 function getTaskState(article) {
-  return appState.localTaskState[getTaskStorageKey(article)] || { status: 'todo', comment: '' };
+  return appState.taskStateMap[getTaskStorageKey(article)] || { status: 'todo', comment: '' };
 }
 
-function saveTaskRow(article, status, comment) {
-  appState.localTaskState[getTaskStorageKey(article)] = { status, comment };
-  persistTaskState();
-  upsertLocalReport({
-    id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
-    author: article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук',
-    role: article.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
+function renderArticleIdentity(row, options = {}) {
+  const wb = row.wbArticle || (row.platformArticleLabel === 'WB артикул' ? (row.platformArticle || '—') : '—');
+  const ozon = row.ozonProductId || row.ozonArticle || (row.platformArticleLabel === 'Ozon артикул' ? row.platformArticle : '') || '—';
+  const lines = [
+    `<strong>${escapeHtml(row.sellerArticle || '—')}</strong>`
+  ];
+  if (options.showName && row.name) lines.push(`<span class="muted">${escapeHtml(row.name)}</span>`);
+  lines.push(`<span class="muted">WB: ${escapeHtml(String(wb || '—'))}</span>`);
+  lines.push(`<span class="muted">Ozon: ${escapeHtml(String(ozon || '—'))}</span>`);
+  return lines.join('');
+}
+
+async function saveTaskRow(article, status, comment) {
+  const payload = {
+    work_date: appState.workDate,
+    platform: article.channel,
+    seller_article: article.sellerArticle,
+    manager_name: article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук',
+    wb_article: article.wbArticle || '',
+    ozon_article: article.ozonProductId || '',
+    item_name: article.name || '',
+    status,
+    comment,
+    updated_at: new Date().toISOString()
+  };
+  await appState.storage.saveTaskState(payload);
+  appState.taskStateMap[getTaskStorageKey(article)] = { status, comment };
+  const report = {
+    work_date: appState.workDate,
+    created_at: new Date().toISOString(),
+    author_name: payload.manager_name,
+    author_role: article.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
     platform: article.channel,
     contour: 'tasks',
     title: `${article.channel} · ${article.sellerArticle}`,
+    route: `${article.channel} · задачи`,
     status,
-    storage: 'browser-local',
-    itemsCount: 1,
-    note: comment || 'Изменен статус по артикулу',
-    route: `${article.channel} задачи`
-  }, { replaceBy: ['author', 'platform', 'title'] });
+    items_count: 1,
+    note: comment || 'Изменён статус по артикулу',
+    storage_label: appState.storage.getDescriptor().label,
+    payload: {
+      sellerArticle: article.sellerArticle,
+      wbArticle: article.wbArticle || '',
+      ozonArticle: article.ozonProductId || ''
+    }
+  };
+  await appState.storage.saveReport(report);
+  appState.sharedReports = [report, ...appState.sharedReports].slice(0, 200);
+  renderDashboardView();
   renderReportsView();
 }
 
-function upsertLocalReport(entry, options = {}) {
-  let list = [...appState.localReports];
-  if (options.replaceBy) {
-    const idx = list.findIndex((item) => options.replaceBy.every((key) => item[key] === entry[key]));
-    if (idx >= 0) list[idx] = entry;
-    else list.unshift(entry);
-  } else {
-    list.unshift(entry);
-  }
-  appState.localReports = list.slice(0, 200);
-  persistReports();
+function upsertLocalReport(entry) {
+  return entry;
 }
 
-function saveDailySummary() {
+async function saveDailySummary() {
   const taskInfo = getTaskRowsForCurrentSelection();
   const statusCounts = countTaskStatuses(taskInfo.rows);
   const author = taskInfo.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук';
-  upsertLocalReport({
-    id: `summary-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-    author,
-    role: taskInfo.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
+  const report = {
+    work_date: appState.workDate,
+    created_at: new Date().toISOString(),
+    author_name: author,
+    author_role: taskInfo.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
     platform: taskInfo.channel,
     contour: 'tasks',
     title: `${taskInfo.channel} · дневной срез`,
+    route: `${taskInfo.channel} · задачи`,
     status: 'saved',
-    storage: 'browser-local',
-    itemsCount: taskInfo.rows.length,
+    items_count: taskInfo.rows.length,
     note: `Пакет ${taskInfo.packNumber}/${taskInfo.totalPacks}. Готово: ${statusCounts.done}, в работе: ${statusCounts.in_progress}, нужна помощь: ${statusCounts.need_help}.`,
-    route: `${taskInfo.channel} задачи`
-  }, { replaceBy: ['author', 'platform', 'title'] });
+    storage_label: appState.storage.getDescriptor().label,
+    payload: {
+      packNumber: taskInfo.packNumber,
+      totalPacks: taskInfo.totalPacks
+    }
+  };
+  await appState.storage.saveReport(report);
+  appState.sharedReports = [report, ...appState.sharedReports].slice(0, 200);
+  renderDashboardView();
   renderReportsView();
-  alert('Срез дня сохранен в журнал review-версии.');
+  alert(appState.storage.isShared() ? 'Срез дня сохранён в общем журнале.' : 'Срез дня сохранён в текущей сессии. Чтобы его видели все, подключи backend.');
 }
 
 function countTaskStatuses(rows) {
@@ -387,7 +432,8 @@ function countTaskStatuses(rows) {
 }
 
 function getAllReports() {
-  return [...appState.localReports, ...appState.data.reportsDemo].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const base = appState.storage?.isShared() ? [] : appState.data.reportsDemo;
+  return [...appState.sharedReports, ...base].sort((a, b) => new Date((b.created_at || b.createdAt)) - new Date((a.created_at || a.createdAt)));
 }
 
 function renderDashboardView() {
@@ -442,7 +488,7 @@ function renderDashboardView() {
         <strong>${escapeHtml(item.title)}</strong>
         <span class="badge ${normalizeStatus(item.status)}">${statusLabel(item.status)}</span>
       </div>
-      <p><strong>${escapeHtml(item.author)}</strong> · ${escapeHtml(item.route)} · ${formatDateTime(item.createdAt)}</p>
+      <p><strong>${escapeHtml(item.author_name || item.author)}</strong> · ${escapeHtml(item.route)} · ${formatDateTime(item.created_at || item.createdAt)}</p>
       <p>${escapeHtml(item.note || '')}</p>
     </div>
   `).join('');
@@ -455,7 +501,7 @@ function renderDashboardView() {
     { key: 'delta', label: 'Δ' },
     { key: 'margin', label: 'Маржа/д' }
   ], deviations.slice(0, 5).map((row) => ({
-    article: `<strong>${escapeHtml(row.sellerArticle)}</strong><span class="muted">${escapeHtml(row.name)}</span>`,
+    article: renderArticleIdentity(row, { showName: true }),
     platform: row.channel,
     plan: formatNum(row.planDay, 1),
     fact: formatNum(row.factDay, 1),
@@ -470,7 +516,7 @@ function renderDashboardView() {
     { key: 'cluster', label: 'Главный кластер' },
     { key: 'action', label: 'Что делать' }
   ], supplyRows.slice(0, 5).map((row) => ({
-    article: `<strong>${escapeHtml(row.sellerArticle)}</strong><span class="muted">${escapeHtml(row.name)}</span>`,
+    article: renderArticleIdentity(row, { showName: true }),
     platform: row.channel,
     need: formatNum(row.totalNeed),
     cluster: escapeHtml(row.topCluster || '—'),
@@ -497,7 +543,7 @@ function renderTasksView() {
   const rows = taskInfo.rows.filter((row) => {
     const state = getTaskState(row);
     const matchesStatus = statusFilter === 'all' || state.status === statusFilter;
-    const hay = `${row.sellerArticle} ${row.name} ${row.action} ${row.reason}`.toLowerCase();
+    const hay = `${row.sellerArticle} ${row.name} ${row.action} ${row.reason} ${row.wbArticle || ''} ${row.ozonProductId || row.ozonArticle || ''}`.toLowerCase();
     const matchesQuery = !query || hay.includes(query);
     return matchesStatus && matchesQuery;
   });
@@ -530,13 +576,13 @@ function renderTasksView() {
     </table>
   `;
   els.tasksTableWrap.querySelectorAll('.save-row-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const article = taskInfo.rows.find((item) => item.sellerArticle === btn.dataset.article);
       if (!article) return;
       const tr = btn.closest('tr');
       const status = tr.querySelector('.task-status-input').value;
       const comment = tr.querySelector('.task-comment-input').value.trim();
-      saveTaskRow(article, status, comment);
+      await saveTaskRow(article, status, comment);
       btn.textContent = 'Сохранено';
       setTimeout(() => { btn.textContent = 'Сохранить'; renderTasksView(); }, 700);
     });
@@ -547,7 +593,7 @@ function renderTaskRow(row) {
   const state = getTaskState(row);
   return `
     <tr>
-      <td><strong>${escapeHtml(row.sellerArticle)}</strong><div class="help-text">${escapeHtml(row.platformArticleLabel || row.channel + ' артикул')}: ${escapeHtml(String(row.platformArticle || '—'))}</div></td>
+      <td>${renderArticleIdentity(row)}</td>
       <td><strong>${escapeHtml(row.name || '—')}</strong><div class="help-text">${escapeHtml(row.category || '')}</div></td>
       <td><span class="badge ${row.priorityBucket}">${escapeHtml(row.priorityLabel || '—')}</span></td>
       <td>${formatNum(getRowPlanDay(row), 1)}</td>
@@ -590,7 +636,7 @@ function renderSupplyView() {
     { key: 'cluster', label: 'Кластер' },
     { key: 'action', label: 'Действие' }
   ], supplyRows.slice(0, 12).map((row) => ({
-    article: `<strong>${escapeHtml(row.sellerArticle)}</strong><span class="muted">${escapeHtml(row.name)}</span>`,
+    article: renderArticleIdentity(row, { showName: true }),
     platform: row.channel,
     need: formatNum(row.totalNeed),
     main: formatNum(row.mainWarehouseStock),
@@ -622,6 +668,8 @@ function getTopSupplyRows(platforms = ['WB', 'Ozon']) {
       rows.push({
         channel: platform,
         sellerArticle: row.sellerArticle,
+        wbArticle: row.wbArticle || '',
+        ozonArticle: row.ozonArticle || '',
         name: row.name,
         totalNeed: Number(row.totalNeed || 0),
         mainWarehouseStock: Number(row.mainWarehouseStock || 0),
@@ -668,7 +716,7 @@ function renderControlView() {
     { key: 'revenue', label: 'Выручка/д' },
     { key: 'margin', label: 'Маржа/д' }
   ], deviations.slice(0, 12).map((row) => ({
-    article: `<strong>${escapeHtml(row.sellerArticle)}</strong><span class="muted">${escapeHtml(row.name)}</span>`,
+    article: renderArticleIdentity(row, { showName: true }),
     platform: row.channel,
     plan: formatNum(row.planDay, 1),
     fact: formatNum(row.factDay, 1),
@@ -683,7 +731,7 @@ function renderControlView() {
     { key: 'margin', label: 'Маржа/д' },
     { key: 'decision', label: 'Куда смотреть' }
   ], compareRows.slice(0, 10).map((row) => ({
-    article: `<strong>${escapeHtml(row.sellerArticle)}</strong><span class="muted">${escapeHtml(row.name)}</span>`,
+    article: renderArticleIdentity(row, { showName: true }),
     wb: `Факт ${formatNum(row.wbFact,1)} / План ${formatNum(row.wbPlan,1)}`,
     ozon: `Факт ${formatNum(row.ozonFact,1)} / План ${formatNum(row.ozonPlan,1)}`,
     margin: `WB ${formatMoney(row.wbMargin)} · Ozon ${formatMoney(row.ozonMargin)}`,
@@ -694,7 +742,7 @@ function renderControlView() {
 function populateChartSelector(deviations) {
   const rows = deviations.slice(0, 20);
   if (!appState.selectedChartArticle && rows[0]) appState.selectedChartArticle = rows[0].sellerArticle;
-  els.chartArticleSelect.innerHTML = rows.map((row) => `<option value="${escapeAttr(row.sellerArticle)}" ${row.sellerArticle === appState.selectedChartArticle ? 'selected' : ''}>${escapeHtml(row.channel)} · ${escapeHtml(row.sellerArticle)}</option>`).join('');
+  els.chartArticleSelect.innerHTML = rows.map((row) => `<option value="${escapeAttr(row.sellerArticle)}" ${row.sellerArticle === appState.selectedChartArticle ? 'selected' : ''}>${escapeHtml(row.channel)} · ${escapeHtml(row.sellerArticle)} · WB ${escapeHtml(String(row.wbArticle || '—'))}</option>`).join('');
 }
 
 function getTopDeviations() {
@@ -712,6 +760,8 @@ function getTopDeviations() {
       const deltaPct = planDay ? (factDay - planDay) / planDay : 0;
       rows.push({
         sellerArticle: article.sellerArticle,
+        wbArticle: article.wbArticle || '',
+        ozonArticle: article.ozonProductId || '',
         name: article.name,
         channel: platform,
         planDay,
@@ -814,12 +864,12 @@ function buildLineChart(row) {
 
 function renderReportsView() {
   const reports = getAllReports();
-  const localCount = appState.localReports.length;
+  const shared = appState.storage?.isShared();
   const summary = [
     { label: 'Всего записей', value: reports.length },
-    { label: 'Локально сохранено', value: localCount },
-    { label: 'Demo shared', value: reports.filter((item) => item.storage === 'demo-shared').length },
-    { label: 'Нужна централиз. синхронизация', value: localCount > 0 ? 'Да' : 'Подготовлено' }
+    { label: 'Режим хранения', value: appState.storage.getDescriptor().label },
+    { label: 'Общий журнал', value: shared ? 'Да' : 'Нет' },
+    { label: 'Что делать дальше', value: shared ? 'Проверять' : 'Заполнить backend в config.js' }
   ];
   els.reportSummary.innerHTML = summary.map((item) => `
     <div class="summary-tile">
@@ -835,20 +885,20 @@ function renderReportsView() {
     { key: 'storage', label: 'Хранилище' },
     { key: 'note', label: 'Что сохранили' }
   ], reports.map((item) => ({
-    time: formatDateTime(item.createdAt),
-    author: `<strong>${escapeHtml(item.author)}</strong><span class="muted">${escapeHtml(item.platform || '')}</span>`,
+    time: formatDateTime(item.created_at || item.createdAt),
+    author: `<strong>${escapeHtml(item.author_name || item.author || '—')}</strong><span class="muted">${escapeHtml(item.platform || '')}</span>`,
     route: escapeHtml(item.route || item.contour || '—'),
     status: `<span class="badge ${normalizeStatus(item.status)}">${statusLabel(item.status)}</span>`,
-    storage: escapeHtml(item.storage || '—'),
+    storage: escapeHtml(item.storage_label || item.storage || '—'),
     note: escapeHtml(item.note || '')
   })));
 }
 
 function exportReportsJson() {
-  const blob = new Blob([JSON.stringify(appState.localReports, null, 2)], { type: 'application/json;charset=utf-8' });
+  const blob = new Blob([JSON.stringify(getAllReports(), null, 2)], { type: 'application/json;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'tekstilno_portal_local_reports_v22.json';
+  a.download = 'tekstilno_portal_reports_v23.json';
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -857,14 +907,20 @@ function importReportsJson(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const rows = JSON.parse(reader.result);
       if (!Array.isArray(rows)) throw new Error('Ожидался массив');
-      appState.localReports = rows;
-      persistReports();
+      if (appState.storage.isShared()) {
+        for (const row of rows) {
+          await appState.storage.saveReport(row);
+        }
+        appState.sharedReports = await appState.storage.listReports();
+      } else {
+        appState.sharedReports = rows;
+      }
       renderReportsView();
-      alert('Локальные записи импортированы.');
+      alert(appState.storage.isShared() ? 'Журнал импортирован в общий backend.' : 'Журнал импортирован в текущую сессию.');
     } catch (error) {
       alert(`Не удалось импортировать JSON: ${error.message}`);
     }

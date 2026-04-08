@@ -1,13 +1,16 @@
+
 const ninaState = {
   config: window.APP_CONFIG || {},
   data: null,
+  articleLookup: new Map(),
+  storage: null,
   platform: "WB",
   page: "matrix",
-  targetDays: loadStorage("tekstilno-nina-target-days-v16", { WB: 21, Ozon: 21 }),
-  turnoverMode: loadStorage("tekstilno-nina-turnover-mode-v16", { WB: 14, Ozon: 14 }),
+  targetDays: { WB: 21, Ozon: 21 },
+  turnoverMode: { WB: 14, Ozon: 14 },
   filters: { search: "", showMode: "all", limit: 9999, sort: "need" },
-  manualInputs: loadStorage("tekstilno-nina-manual-inputs-v16", {}),
-  orderRequests: loadStorage("tekstilno-nina-order-requests-v16", []),
+  manualInputs: {},
+  orderRequests: [],
   selectedArticle: null
 };
 
@@ -19,7 +22,9 @@ document.addEventListener("DOMContentLoaded", initNina);
 async function initNina() {
   cacheElements();
   bindEvents();
+  ninaState.storage = createSharedStorage(ninaState.config);
   await loadData();
+  await refreshSharedState();
   syncUiState();
   renderAll();
 }
@@ -77,14 +82,92 @@ function bindEvents() {
 
 async function loadData() {
   try {
-    const response = await fetch(versionedUrl("data/nina-cluster-dashboard.json"));
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    ninaState.data = await response.json();
+    const [ninaResponse, planResponse] = await Promise.all([
+      fetch(versionedUrl(ninaState.config?.ninaDataUrl || "data/nina-cluster-dashboard.json")),
+      fetch(versionedUrl(ninaState.config?.planDataUrl || "data/article-plan.json"))
+    ]);
+    if (!ninaResponse.ok) throw new Error(`HTTP ${ninaResponse.status}`);
+    if (!planResponse.ok) throw new Error(`HTTP ${planResponse.status}`);
+    ninaState.data = await ninaResponse.json();
+    const plan = await planResponse.json();
+    ninaState.articleLookup = buildArticleLookup(plan);
+    enrichClusterRows();
     ninaEls.reportMonthBadge.value = ninaState.data.reportMonth || "—";
   } catch (error) {
     console.error(error);
-    showToast(`Не удалось загрузить data/nina-cluster-dashboard.json: ${error.message}`);
+    showToast(`Не удалось загрузить данные: ${error.message}`);
   }
+}
+
+function buildArticleLookup(plan) {
+  const lookup = new Map();
+  const managers = plan?.managers || {};
+  Object.values(managers).forEach((manager) => {
+    (manager.articles || []).forEach((article) => {
+      const key = String(article.sellerArticle || '').trim();
+      if (!key) return;
+      const prev = lookup.get(key) || {};
+      lookup.set(key, {
+        sellerArticle: key,
+        wbArticle: article.wbArticle || prev.wbArticle || '',
+        ozonArticle: article.ozonProductId || prev.ozonArticle || '',
+        wbName: article.channel === 'WB' ? (article.name || prev.wbName || '') : (prev.wbName || ''),
+        ozonName: article.channel === 'Ozon' ? (article.name || prev.ozonName || '') : (prev.ozonName || ''),
+        photoUrl: article.photoUrl || prev.photoUrl || ''
+      });
+    });
+  });
+  return lookup;
+}
+
+function enrichClusterRows() {
+  const platforms = ninaState.data?.platforms || {};
+  Object.values(platforms).forEach((platformData) => {
+    (platformData.rows || []).forEach((row) => {
+      const meta = ninaState.articleLookup.get(String(row.sellerArticle || '').trim()) || {};
+      row.wbArticle = row.wbArticle || meta.wbArticle || (row.channel === 'WB' ? row.platformArticle : '');
+      row.ozonArticle = row.ozonArticle || meta.ozonArticle || (row.channel === 'Ozon' ? row.platformArticle : '');
+      row.photoUrl = row.photoUrl || meta.photoUrl || '';
+      row.wbName = row.wbName || meta.wbName || '';
+      row.ozonName = row.ozonName || meta.ozonName || '';
+    });
+  });
+}
+
+async function refreshSharedState() {
+  const [manualRows, orderRows] = await Promise.all([
+    ninaState.storage.listSupplyManual(),
+    ninaState.storage.listOrderRequests()
+  ]);
+  ninaState.manualInputs = Object.fromEntries((manualRows || []).map((row) => {
+    const key = `${row.platform}__${row.seller_article}__${row.cluster_name}`;
+    return [key, {
+      inTransit: Number(row.in_transit || 0) || 0,
+      production: Number(row.production || 0) || 0,
+      procurement: Number(row.procurement || 0) || 0,
+      eta: row.eta_date || '',
+      comment: row.comment || '',
+      targetDays: row.target_days || '',
+      seasonalityOverride: row.seasonality_override || '',
+      updatedAt: row.updated_at || ''
+    }];
+  }));
+  ninaState.orderRequests = (orderRows || []).map((row) => ({
+    id: row.id || row.request_id || `req-${Math.random().toString(36).slice(2,8)}`,
+    createdAt: row.created_at || row.createdAt || new Date().toISOString(),
+    platform: row.platform,
+    sellerArticle: row.seller_article || row.sellerArticle,
+    cluster: row.cluster_name || row.cluster,
+    wbArticle: row.wb_article || '',
+    ozonArticle: row.ozon_article || '',
+    recommendedQty: Number(row.recommended_qty || row.recommendedQty || 0) || 0,
+    qty: Number(row.requested_qty || row.qty || 0) || 0,
+    source: row.source || '',
+    priority: row.priority || '',
+    eta: row.eta_date || row.eta || '',
+    comment: row.comment || '',
+    createdBy: row.created_by || ''
+  }));
 }
 
 function syncUiState() {
@@ -108,18 +191,18 @@ function switchPage(page) {
 
 function switchTurnover(mode) {
   ninaState.turnoverMode[ninaState.platform] = mode;
-  persistTurnoverMode();
+  updateToggleUi();
   renderSummary();
   renderSelectedCard();
   renderTopDeficits();
   renderMatrix();
+  fillOrderRecommendation();
   renderOrderRecommendations();
 }
 
 function handleTargetDaysChange() {
   const value = clampNumber(Number(ninaEls.targetDaysInput.value || 21), 7, 90, 21);
   ninaState.targetDays[ninaState.platform] = value;
-  persistTargetDays();
   ninaEls.targetDaysInput.value = value;
   renderSummary();
   renderSelectedCard();
@@ -129,39 +212,10 @@ function handleTargetDaysChange() {
   renderOrderRecommendations();
 }
 
-function persistTargetDays() {
-  localStorage.setItem("tekstilno-nina-target-days-v16", JSON.stringify(ninaState.targetDays));
-}
-
-function persistTurnoverMode() {
-  localStorage.setItem("tekstilno-nina-turnover-mode-v16", JSON.stringify(ninaState.turnoverMode));
-}
-
-function persistManualInputs() {
-  localStorage.setItem("tekstilno-nina-manual-inputs-v16", JSON.stringify(ninaState.manualInputs));
-}
-
-function persistOrderRequests() {
-  localStorage.setItem("tekstilno-nina-order-requests-v16", JSON.stringify(ninaState.orderRequests));
-}
-
-function updateToggleUi() {
-  ninaEls.platformButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.platform === ninaState.platform));
-  ninaEls.pageButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.page === ninaState.page));
-  ninaEls.turnoverButtons.forEach((btn) => btn.classList.toggle("active", Number(btn.dataset.turnoverMode) === getCurrentTurnoverMode()));
-  Object.entries(ninaEls.pagePanels).forEach(([key, panel]) => panel.classList.toggle("active", key === ninaState.page));
-  if (ninaState.page === "matrix") {
-    requestAnimationFrame(syncMatrixStickyOffsets);
-  }
-}
-
-function getCurrentTargetDays() {
-  return ninaState.targetDays[ninaState.platform] || 21;
-}
-
-function getCurrentTurnoverMode() {
-  return Number(ninaState.turnoverMode[ninaState.platform] || 14);
-}
+function persistTargetDays() {}
+function persistTurnoverMode() {}
+function persistManualInputs() {}
+function persistOrderRequests() {}
 
 function getPlatformData(platform = ninaState.platform) {
   return ninaState.data?.platforms?.[platform] || { clusters: [], rows: [], summary: {}, topDeficits: [] };
@@ -381,7 +435,7 @@ function getFilteredRows() {
   const priorityRank = { critical: 4, high: 3, medium: 2, low: 1 };
 
   let filtered = rows.filter((row) => {
-    const hay = `${row.sellerArticle} ${row.name || ""} ${row.category || ""} ${row.platformArticle || ""}`.toLowerCase();
+    const hay = `${row.sellerArticle} ${row.name || ""} ${row.category || ""} ${row.platformArticle || ""} ${row.wbArticle || ""} ${row.ozonArticle || ""}`.toLowerCase();
     if (search && !hay.includes(search)) return false;
     if (ninaState.filters.showMode === "need" && row.totalNeedModeCalc <= 0) return false;
     if (ninaState.filters.showMode === "priority" && !["critical", "high"].includes(row.priorityBucket)) return false;
@@ -414,7 +468,7 @@ function renderMatrix() {
   ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. Шапка таблицы: кластеры → склады → показатели. Вносить можно прямо в ячейках, рекомендацию к заказу выгружать кнопкой «Скачать потребность». Горизонт расчета: ${getCurrentTurnoverMode()} дн.`;
   ninaEls.matrixHead.innerHTML = buildMatrixHead(clusters);
   if (!rows.length) {
-    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${5 + totalLabelsCount + clusters.length * clusterLabelsCount}">По текущим фильтрам ничего не найдено.</td></tr>`;
+    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${6 + totalLabelsCount + clusters.length * clusterLabelsCount}">По текущим фильтрам ничего не найдено.</td></tr>`;
     syncMatrixStickyOffsets();
     return;
   }
@@ -520,11 +574,12 @@ function buildMatrixRow(row, clusters) {
 
   return `
     <tr data-row-article="${escapeHtmlAttr(row.sellerArticle)}">
-      <td class="sticky-col col-article"><button type="button" class="article-link" data-article-open="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)}</button></td>
-      <td class="sticky-col-2 col-name"><strong>${escapeHtml(row.name || "")}</strong><br><span class="muted">${escapeHtml(row.category || "")}</span></td>
-      <td class="sticky-col-3 col-priority"><span class="priority-pill ${priorityClass}">${escapeHtml(row.priorityLabel || "—")}</span></td>
-      <td class="sticky-col-4 col-planmonth">${numberFormat(row.monthPlanUnitsTotal || 0)}</td>
-      <td class="sticky-col-5 col-main">${numberFormat(row.mainWarehouseStock || 0)}</td>
+      <td class="sticky-col col-article"><button type="button" class="article-link" data-article-open="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)}</button><br><span class="muted">Ozon: ${escapeHtml(row.ozonArticle || '—')}</span></td>
+      <td class="sticky-col-2 col-wb"><strong>${escapeHtml(row.wbArticle || '—')}</strong></td>
+      <td class="sticky-col-3 col-name"><strong>${escapeHtml(row.name || "")}</strong><br><span class="muted">${escapeHtml(row.category || "")}</span></td>
+      <td class="sticky-col-4 col-priority"><span class="priority-pill ${priorityClass}">${escapeHtml(row.priorityLabel || "—")}</span></td>
+      <td class="sticky-col-5 col-planmonth">${numberFormat(row.monthPlanUnitsTotal || 0)}</td>
+      <td class="sticky-col-6 col-main">${numberFormat(row.mainWarehouseStock || 0)}</td>
       ${totalCells}
       ${clusterCells}
     </tr>
@@ -570,7 +625,7 @@ function handleMatrixClick(event) {
   }
 }
 
-function handleMatrixChange(event) {
+async function handleMatrixChange(event) {
   const control = event.target.closest("[data-manual-field]");
   if (!control) return;
 
@@ -598,7 +653,27 @@ function handleMatrixChange(event) {
     fillOrderRecommendationIfMatches(article, cluster);
   });
 
-  showToast("Сохранено.");
+  const rowData = getRowMap().get(article);
+  const computedRow = rowData ? computeRow(rowData) : null;
+  const metric = computedRow?.clusterMetricsCalc.find((item) => item.cluster === cluster);
+  await ninaState.storage.saveSupplyManual({
+    snapshot_date: new Date().toISOString().slice(0, 10),
+    platform: ninaState.platform,
+    seller_article: article,
+    cluster_name: cluster,
+    wb_article: rowData?.wbArticle || "",
+    ozon_article: rowData?.ozonArticle || "",
+    in_transit: Number(payload.inTransit || 0) || 0,
+    production: Number(payload.production || 0) || 0,
+    procurement: Number(payload.procurement || 0) || 0,
+    target_days: Number(payload.targetDays || metric?.targetDays || getCurrentTargetDays()) || getCurrentTargetDays(),
+    eta_date: normalizeDateValue(payload.eta || ""),
+    comment: payload.comment || "",
+    updated_at: payload.updatedAt || new Date().toISOString(),
+    updated_by: "nina"
+  });
+
+  showToast(ninaState.storage.isShared() ? "Сохранено в общем журнале." : "Сохранено в текущей сессии.");
 }
 
 function preserveMatrixScroll(callback) {
@@ -653,9 +728,11 @@ function renderSelectedCard() {
           <span class="tag-pill">План мес.: ${numberFormat(row.monthPlanUnitsTotal || 0)} шт</span>
           <span class="tag-pill">План/д: ${numberFormat(row.currentPlanDay || 0, 1)}</span>
           <span class="tag-pill">Осн. склад: ${numberFormat(row.mainWarehouseStock || 0)}</span>
+          <span class="tag-pill">WB: ${escapeHtml(row.wbArticle || "—")}</span>
+          <span class="tag-pill">Ozon: ${escapeHtml(row.ozonArticle || "—")}</span>
         </div>
       </div>
-      <div class="tag-pill">${escapeHtml(row.platformArticle || "без platformArticle")}</div>
+      <div class="tag-pill">Текущий арт.: ${escapeHtml(row.platformArticle || "—")}</div>
     </div>
 
     <div class="article-summary">
@@ -740,6 +817,7 @@ function renderTopDeficits() {
   ninaEls.topDeficitsList.innerHTML = rows.length ? rows.map((row) => `
     <button type="button" class="deficit-item" data-top-deficit="${escapeHtmlAttr(row.sellerArticle)}">
       <strong>${escapeHtml(row.sellerArticle)}</strong>
+      <div class="muted">WB: ${escapeHtml(row.wbArticle || "—")}</div>
       <div>${escapeHtml(row.name || "")}</div>
       <div class="deficit-meta">
         <span class="priority-pill priority-${row.priorityBucket || "low"}">${escapeHtml(row.priorityLabel || "—")}</span>
@@ -816,13 +894,16 @@ function fillOrderRecommendation() {
   }
 }
 
-function saveOrderRequest(event) {
+async function saveOrderRequest(event) {
   event.preventDefault();
+  const selectedRow = getRowMap().get(ninaEls.orderArticleSelect.value);
   const request = {
     id: `req-${Date.now()}`,
     createdAt: new Date().toISOString(),
     platform: ninaState.platform,
     sellerArticle: ninaEls.orderArticleSelect.value,
+    wbArticle: selectedRow?.wbArticle || '',
+    ozonArticle: selectedRow?.ozonArticle || '',
     cluster: ninaEls.orderClusterSelect.value,
     recommendedQty: Number(ninaEls.orderRecommendedInput.value || 0) || 0,
     qty: Number(ninaEls.orderQtyInput.value || 0) || 0,
@@ -832,9 +913,24 @@ function saveOrderRequest(event) {
     comment: ninaEls.orderCommentInput.value.trim()
   };
   ninaState.orderRequests.unshift(request);
-  persistOrderRequests();
+  await ninaState.storage.saveOrderRequest({
+    created_at: request.createdAt,
+    request_date: new Date().toISOString().slice(0, 10),
+    platform: request.platform,
+    seller_article: request.sellerArticle,
+    cluster_name: request.cluster,
+    wb_article: request.wbArticle || "",
+    ozon_article: request.ozonArticle || "",
+    recommended_qty: request.recommendedQty || 0,
+    requested_qty: request.qty || 0,
+    source: request.source || "",
+    priority: request.priority || "",
+    eta_date: normalizeDateValue(request.eta || ""),
+    comment: request.comment || "",
+    created_by: "nina"
+  });
   renderOrdersTable();
-  showToast("Заявка сохранена.");
+  showToast(ninaState.storage.isShared() ? "Заявка сохранена в общем журнале." : "Заявка сохранена в текущей сессии.");
   resetOrderForm();
 }
 
@@ -860,7 +956,7 @@ function renderOrderRecommendations() {
     return (b.recommendedQtyCalc || 0) - (a.recommendedQtyCalc || 0) || (b.activeDailyDemand || 0) - (a.activeDailyDemand || 0);
   });
 
-  ninaEls.orderRecommendationMeta.textContent = `${ninaState.platform} · ${computed.sellerArticle}. Рекомендация считается по продажам, текущему горизонту ${getCurrentTurnoverMode()} дн и целевому покрытию ${getCurrentTargetDays()} дн.`;
+  ninaEls.orderRecommendationMeta.textContent = `${ninaState.platform} · ${computed.sellerArticle} · WB ${computed.wbArticle || "—"}. Рекомендация считается по продажам, текущему горизонту ${getCurrentTurnoverMode()} дн и целевому покрытию ${getCurrentTargetDays()} дн.`;
 
   ninaEls.orderRecommendationBody.innerHTML = metrics.length ? metrics.map((metric) => {
     const needClass = metric.recommendedQtyCalc > 100 ? "need-high" : metric.recommendedQtyCalc > 0 ? "need-mid" : "need-zero";
@@ -903,7 +999,8 @@ function renderOrdersTable() {
     <tr>
       <td>${escapeHtml(formatDateTime(item.createdAt))}</td>
       <td>${escapeHtml(item.platform)}</td>
-      <td>${escapeHtml(item.sellerArticle)}</td>
+      <td><strong>${escapeHtml(item.sellerArticle)}</strong><div class="muted">WB: ${escapeHtml(item.wbArticle || "—")}</div></td>
+      <td>${escapeHtml(item.ozonArticle || "—")}</td>
       <td>${escapeHtml(item.cluster)}</td>
       <td class="num">${numberFormat(item.recommendedQty || 0)}</td>
       <td class="num">${numberFormat(item.qty || 0)}</td>
@@ -911,7 +1008,7 @@ function renderOrdersTable() {
       <td>${escapeHtml(item.eta || "—")}</td>
       <td>${escapeHtml(item.comment || "—")}</td>
     </tr>
-  `).join("") : `<tr><td colspan="9">Пока нет сохраненных заявок.</td></tr>`;
+  `).join("") : `<tr><td colspan="10">Пока нет сохраненных заявок.</td></tr>`;
 }
 
 function exportAllJson() {
@@ -969,7 +1066,7 @@ function exportExcelWorkbook() {
 function buildMatrixSheet(platform) {
   const warehouseMap = getClusterWarehouseMap(platform);
   const rows = [[
-    "Платформа", "Артикул", "Товар", "Категория", "Приоритет", "План месяца, шт", "План/день",
+    "Платформа", "Артикул", "WB артикул", "Ozon артикул", "Товар", "Категория", "Приоритет", "План месяца, шт", "План/день",
     "Осн. склад", "Кластер", "Склады в кластере", "Продажи 7д", "Продажи 14д", "Спрос 7д", "Спрос 14д", "Спрос 28д",
     `Спрос активный (${getTurnoverModeForPlatform(platform)}д)`, "Запас", "В пути", "Производство", "Закупка", "Доступно",
     "Цель покрытия, шт", "Формула к заказу", "Обор. 7д", "Обор. 14д", "Обор. 28д", `Обор. активная (${getTurnoverModeForPlatform(platform)}д)`,
@@ -981,6 +1078,8 @@ function buildMatrixSheet(platform) {
       rows.push([
         platform,
         row.sellerArticle,
+        row.wbArticle || "",
+        row.ozonArticle || "",
         row.name || "",
         row.category || "",
         row.priorityLabel || "",
@@ -1045,7 +1144,7 @@ function buildManualSheet() {
 
 function buildOrdersSheet() {
   const rows = [[
-    "Дата", "Платформа", "Артикул", "Кластер", "Реком.", "Заказать", "Источник", "Приоритет", "Дата прихода", "Комментарий"
+    "Дата", "Платформа", "Артикул", "WB артикул", "Ozon артикул", "Кластер", "Реком.", "Заказать", "Источник", "Приоритет", "Дата прихода", "Комментарий"
   ]];
   ninaState.orderRequests
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
@@ -1054,6 +1153,8 @@ function buildOrdersSheet() {
         formatDateTime(item.createdAt),
         item.platform,
         item.sellerArticle,
+        item.wbArticle || "",
+        item.ozonArticle || "",
         item.cluster,
         item.recommendedQty || 0,
         item.qty || 0,
@@ -1069,7 +1170,7 @@ function buildOrdersSheet() {
 function buildNeedSheet(platform = ninaState.platform) {
   const warehouseMap = getClusterWarehouseMap(platform);
   const rows = [[
-    "Платформа", "Артикул", "Товар", "Приоритет", "План месяца, шт", "Продажи 7д", "Продажи 14д", `Спрос/день (${getTurnoverModeForPlatform(platform)}д)`,
+    "Платформа", "Артикул", "WB артикул", "Ozon артикул", "Товар", "Приоритет", "План месяца, шт", "Продажи 7д", "Продажи 14д", `Спрос/день (${getTurnoverModeForPlatform(platform)}д)`,
     "Кластер", "Склады", "Запас", "В пути", "Производство", "Закупка", "Доступно", "Цель покрытия, шт", "Формула к заказу", `Оборачиваемость (${getTurnoverModeForPlatform(platform)}д)`,
     `Реком. к заказу (${getTurnoverModeForPlatform(platform)}д)`, "Целевые дни", "Дата прихода", "Комментарий"
   ]];
@@ -1082,6 +1183,8 @@ function buildNeedSheet(platform = ninaState.platform) {
           rows.push([
             platform,
             row.sellerArticle,
+            row.wbArticle || "",
+            row.ozonArticle || "",
             row.name || "",
             row.priorityLabel || "",
             row.monthPlanUnitsTotal || 0,
@@ -1259,12 +1362,7 @@ function downloadBlob(content, filename, mimeType) {
 }
 
 function loadStorage(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (error) {
-    return fallback;
-  }
+  return fallback;
 }
 
 function showToast(message) {

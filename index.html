@@ -7,6 +7,7 @@
   <meta name="description" content="UX-review версия портала Текстильно: контуры задач, поставок, контроля и отчетности в одном понятном каркасе." />
   <link rel="stylesheet" href="portal.css" />
   <script src="config.js"></script>
+  <script defer src="shared-storage.js"></script>
   <script defer src="portal.js"></script>
 </head>
 <body>
@@ -33,18 +34,18 @@
       </section>
 
       <nav class="main-nav" id="mainNav">
-        <button class="nav-link active" data-view="dashboard"><span>Обзор</span><small>Сводка дня</small></button>
-        <button class="nav-link" data-view="tasks"><span>Задачи</span><small>20 артикулов / день</small></button>
-        <button class="nav-link" data-view="supply"><span>Поставки</span><small>Кластеры и потребность</small></button>
-        <button class="nav-link" data-view="control"><span>Контроль продаж</span><small>План, факт, маржа</small></button>
-        <button class="nav-link" data-view="reports"><span>Отчеты</span><small>Что сохранили и кто отправил</small></button>
+        <button class="nav-link active" data-view="dashboard"><span>Сегодня</span><small>Куда смотреть в первую очередь</small></button>
+        <button class="nav-link" data-view="tasks"><span>Задачи менеджеров</span><small>WB и Ozon · пакет 20 SKU</small></button>
+        <button class="nav-link" data-view="supply"><span>Кластера и отгрузка</span><small>Матрица, потребность, заявки</small></button>
+        <button class="nav-link" data-view="control"><span>Продажи и маржа</span><small>План, факт, PnL, фокус</small></button>
+        <button class="nav-link" data-view="reports"><span>Журнал сдачи</span><small>Кто и что сохранил</small></button>
       </nav>
 
       <section class="side-section compact-cards">
         <article class="mini-card">
           <span>Режим хранения</span>
           <strong id="storageModeLabel">—</strong>
-          <small>Пока это review-версия: данные сохраняются в браузере, но видно, что именно было сохранено.</small>
+          <small>Теперь портал ждёт общий backend. Без него запись идёт только в текущую сессию, без localStorage.</small>
         </article>
         <article class="mini-card">
           <span>Дата проверки</span>
@@ -77,6 +78,25 @@
 
       <section class="sync-banner" id="syncBanner">
         <strong>Важно:</strong> это review-сборка для проверки удобства. Она показывает, что именно сохранено и кем, но общая центральная синхронизация появится после подключения Supabase.
+      </section>
+
+      <section class="contour-strip" id="contourStrip">
+        <button class="contour-tile active" data-view="tasks" type="button">
+          <strong>1. Задачи менеджеров</strong>
+          <small>WB / Ozon раздельно, пакет 20 артикулов, статусы и комментарии.</small>
+        </button>
+        <button class="contour-tile" data-view="supply" type="button">
+          <strong>2. Кластера и отгрузка</strong>
+          <small>Матрица Нины, потребность по кластерам и заявки на товар.</small>
+        </button>
+        <button class="contour-tile" data-view="control" type="button">
+          <strong>3. Продажи / маржа / PnL</strong>
+          <small>Сравнение WB и Ozon, отклонения к плану и куда выгоднее грузить.</small>
+        </button>
+        <button class="contour-tile" data-view="reports" type="button">
+          <strong>4. Журнал сдачи</strong>
+          <small>Кто сохранил отчёт, когда и по какому контуру.</small>
+        </button>
       </section>
 
       <main class="views">
