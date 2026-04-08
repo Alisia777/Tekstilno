@@ -1,12 +1,9 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v17",
-  appsScriptUrl: "",
-  googleSheetUrl: "",
-  enableRemoteDashboard: false,
-  packSize: 20,
-  maxLocalSubmissions: 500,
+  siteVersion: "v22-ux-review",
+  storageMode: "demo-local",
   planDataUrl: "data/article-plan.json",
-  clusterDataUrl: "data/cluster-reference.json",
-  historyDataUrl: "data/history-data.json"
+  historyDataUrl: "data/history-data.json",
+  ninaDataUrl: "data/nina-cluster-dashboard.json",
+  demoReportsUrl: "data/demo-reports.json"
 };

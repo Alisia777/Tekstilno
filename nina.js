@@ -72,6 +72,7 @@ function bindEvents() {
   ninaEls.exportNeedBtn.addEventListener("click", exportNeedWorkbook);
   ninaEls.exportAllBtn.addEventListener("click", exportAllJson);
   ninaEls.importAllInput.addEventListener("change", importAllJson);
+  window.addEventListener("resize", syncMatrixStickyOffsets);
 }
 
 async function loadData() {
@@ -149,6 +150,9 @@ function updateToggleUi() {
   ninaEls.pageButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.page === ninaState.page));
   ninaEls.turnoverButtons.forEach((btn) => btn.classList.toggle("active", Number(btn.dataset.turnoverMode) === getCurrentTurnoverMode()));
   Object.entries(ninaEls.pagePanels).forEach(([key, panel]) => panel.classList.toggle("active", key === ninaState.page));
+  if (ninaState.page === "matrix") {
+    requestAnimationFrame(syncMatrixStickyOffsets);
+  }
 }
 
 function getCurrentTargetDays() {
@@ -231,6 +235,8 @@ function computeRow(row, platform = ninaState.platform) {
     const coverage28DaysCalc = dailyDemand28 > 0 ? roundNum(available / dailyDemand28, 1) : null;
 
     const activeDailyDemand = getDemandForMode({ dailyDemand7, dailyDemand14, dailyDemand28 }, mode);
+    const targetQtyCalc = Math.max(0, Math.ceil(activeDailyDemand * targetDays));
+    const rawNeedCalc = roundNum(targetQtyCalc - available, 1);
     const activeCoverage = activeDailyDemand > 0 ? roundNum(available / activeDailyDemand, 1) : null;
     const recommendedQtyCalc = Math.max(0, Math.ceil(activeDailyDemand * targetDays - available));
 
@@ -250,6 +256,8 @@ function computeRow(row, platform = ninaState.platform) {
       production,
       procurement,
       available: roundNum(available, 2),
+      targetQtyCalc,
+      rawNeedCalc,
       coverage7DaysCalc,
       coverage14DaysCalc,
       coverage28DaysCalc,
@@ -275,6 +283,8 @@ function computeRow(row, platform = ninaState.platform) {
   const totalAvailableCalc = totalStockCalc + totalTransitCalc + totalProductionCalc + totalProcurementCalc;
 
   const totalActiveDemand = mode === 7 ? totalDemand7Calc : mode === 28 ? totalDemand28Calc : totalDemand14Calc;
+  const totalTargetQtyCalc = clusterMetricsCalc.reduce((sum, item) => sum + Number(item.targetQtyCalc || 0), 0);
+  const totalRawNeedCalc = roundNum(totalTargetQtyCalc - totalAvailableCalc, 1);
   const totalCoverage7Calc = totalDemand7Calc > 0 ? roundNum(totalAvailableCalc / totalDemand7Calc, 1) : null;
   const totalCoverage14Calc = totalDemand14Calc > 0 ? roundNum(totalAvailableCalc / totalDemand14Calc, 1) : null;
   const totalCoverage28Calc = totalDemand28Calc > 0 ? roundNum(totalAvailableCalc / totalDemand28Calc, 1) : null;
@@ -298,6 +308,8 @@ function computeRow(row, platform = ninaState.platform) {
     totalProductionCalc: roundNum(totalProductionCalc, 2),
     totalProcurementCalc: roundNum(totalProcurementCalc, 2),
     totalAvailableCalc: roundNum(totalAvailableCalc, 2),
+    totalTargetQtyCalc,
+    totalRawNeedCalc,
     totalCoverage7Calc,
     totalCoverage14Calc,
     totalCoverage28Calc,
@@ -397,19 +409,23 @@ function renderMatrix() {
   const platformData = getPlatformData();
   const clusters = platformData.clusters || [];
   const rows = getFilteredRows();
+  const totalLabelsCount = 12;
+  const clusterLabelsCount = 15;
   ninaEls.matrixMeta.textContent = `${ninaState.platform}: ${rows.length} строк на экране из ${platformData.rows.length}. Шапка таблицы: кластеры → склады → показатели. Вносить можно прямо в ячейках, рекомендацию к заказу выгружать кнопкой «Скачать потребность». Горизонт расчета: ${getCurrentTurnoverMode()} дн.`;
   ninaEls.matrixHead.innerHTML = buildMatrixHead(clusters);
   if (!rows.length) {
-    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${5 + 10 + clusters.length * 13}">По текущим фильтрам ничего не найдено.</td></tr>`;
+    ninaEls.matrixBody.innerHTML = `<tr><td colspan="${5 + totalLabelsCount + clusters.length * clusterLabelsCount}">По текущим фильтрам ничего не найдено.</td></tr>`;
+    syncMatrixStickyOffsets();
     return;
   }
   ninaEls.matrixBody.innerHTML = rows.map((row) => buildMatrixRow(row, clusters)).join("");
+  syncMatrixStickyOffsets();
 }
 
 function buildMatrixHead(clusters) {
   const warehouseMap = getClusterWarehouseMap();
-  const totalLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Реком."];
-  const clusterLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Обор.", "Реком.", "Дата прихода", "Коммент", "Заявка"];
+  const totalLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Доступно", "Обор.", "Расчёт", "Реком."];
+  const clusterLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Доступно", "Обор.", "Расчёт", "Реком.", "Дата прихода", "Коммент", "Заявка"];
   const top = [
     `<th class="sticky-col col-article" rowspan="3">Артикул / размер</th>`,
     `<th class="sticky-col-2 col-name" rowspan="3">Товар</th>`,
@@ -455,7 +471,9 @@ function buildMatrixRow(row, clusters) {
     formatNumericCell(row.totalTransitCalc, true),
     formatNumericCell(row.totalProductionCalc, true),
     formatNumericCell(row.totalProcurementCalc, true),
+    formatNumericCell(row.totalAvailableCalc, true),
     formatNumericCell(row.totalCoverageModeCalc, false, 1),
+    buildFormulaDisplayCell(row.totalTargetQtyCalc || 0, row.totalAvailableCalc || 0, row.totalNeedModeCalc || 0, true),
     `<td class="metric-col total-cell"><span class="need-pill ${totalNeedClass}">${numberFormat(row.totalNeedModeCalc || 0)}</span></td>`
   ].join("");
 
@@ -490,7 +508,9 @@ function buildMatrixRow(row, clusters) {
       <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "inTransit", entry.inTransit)}</td>
       <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "production", entry.production)}</td>
       <td class="metric-col">${buildInlineNumber(row.sellerArticle, cluster, "procurement", entry.procurement)}</td>
+      <td class="metric-col"${titleAttr}>${numberFormat(entry.available || 0)}</td>
       <td class="metric-col"${titleAttr}>${numberOrDash(entry.activeCoverage)}</td>
+      ${buildFormulaDisplayCell(entry.targetQtyCalc || 0, entry.available || 0, entry.recommendedQtyCalc || 0, false, titleAttr)}
       <td class="metric-col"${titleAttr}><span class="need-pill ${needClass}">${numberFormat(entry.recommendedQtyCalc || 0)}</span></td>
       <td class="metric-col">${buildInlineDate(row.sellerArticle, cluster, "eta", entry.eta)}</td>
       <td class="metric-col">${buildInlineText(row.sellerArticle, cluster, "comment", entry.comment)}</td>
@@ -514,6 +534,11 @@ function buildMatrixRow(row, clusters) {
 function formatNumericCell(value, integer = false, digits = 0) {
   const rendered = integer ? numberFormat(value || 0) : numberOrDashWithDigits(value, digits);
   return `<td class="metric-col total-cell">${rendered}</td>`;
+}
+
+function buildFormulaDisplayCell(targetQty, available, recommendedQty, isTotal = false, extraAttr = "") {
+  const cls = isTotal ? "formula-col formula-total" : "formula-col";
+  return `<td class="metric-col ${cls}"${extraAttr}><div class="formula-cell"><span>цель ${numberFormat(targetQty || 0)}</span><strong>${numberFormat(targetQty || 0)} − ${numberFormat(available || 0)}</strong><em>рек. ${numberFormat(recommendedQty || 0)}</em></div></td>`;
 }
 
 function buildInlineNumber(article, cluster, field, value) {
@@ -641,6 +666,7 @@ function renderSelectedCard() {
       <div class="summary-block"><span>Оборач. 28 дн</span><strong>${numberOrDash(row.totalCoverage28Calc)}</strong></div>
       <div class="summary-block"><span>Запас на МП</span><strong>${numberFormat(row.totalStockCalc || 0)}</strong></div>
       <div class="summary-block"><span>В пути / пр-во / закуп</span><strong>${numberFormat(row.totalTransitCalc || 0)} / ${numberFormat(row.totalProductionCalc || 0)} / ${numberFormat(row.totalProcurementCalc || 0)}</strong></div>
+      <div class="summary-block"><span>Доступно всего</span><strong>${numberFormat(row.totalAvailableCalc || 0)}</strong></div>
       <div class="summary-block"><span>Реком. к заказу (${getCurrentTurnoverMode()} дн)</span><strong>${numberFormat(row.totalNeedModeCalc || 0)}</strong></div>
     </div>
 
@@ -690,6 +716,19 @@ function scrollToSelectedRow() {
   if (row) {
     row.scrollIntoView({ block: "nearest", inline: "start" });
   }
+}
+
+function syncMatrixStickyOffsets() {
+  if (!ninaEls.pagePanels?.matrix || !ninaEls.pagePanels.matrix.classList.contains("active")) return;
+  const headRows = ninaEls.matrixHead?.querySelectorAll("tr");
+  if (!headRows || headRows.length < 3) return;
+  const first = headRows[0].getBoundingClientRect().height || 44;
+  const second = headRows[1].getBoundingClientRect().height || 44;
+  const third = headRows[2].getBoundingClientRect().height || 44;
+  if (first < 10 || second < 10 || third < 10) return;
+  document.documentElement.style.setProperty("--matrix-head-top-2", `${Math.round(first)}px`);
+  document.documentElement.style.setProperty("--matrix-head-top-3", `${Math.round(first + second)}px`);
+  document.documentElement.style.setProperty("--matrix-head-total", `${Math.round(first + second + third)}px`);
 }
 
 function renderTopDeficits() {
@@ -811,7 +850,7 @@ function renderOrderRecommendations() {
   const row = getRowMap().get(ninaEls.orderArticleSelect.value || ninaState.selectedArticle);
   if (!row) {
     ninaEls.orderRecommendationMeta.textContent = "Выбери артикул, чтобы увидеть расчет по кластерам.";
-    ninaEls.orderRecommendationBody.innerHTML = `<tr><td colspan="8">Нет данных по выбранному артикулу.</td></tr>`;
+    ninaEls.orderRecommendationBody.innerHTML = `<tr><td colspan="9">Нет данных по выбранному артикулу.</td></tr>`;
     return;
   }
 
@@ -835,11 +874,12 @@ function renderOrderRecommendations() {
         <td class="num">${numberFormat(metric.activeDailyDemand || 0, 1)}</td>
         <td class="num">${numberFormat(metric.available || 0)}</td>
         <td class="num">${numberOrDash(metric.activeCoverage)}</td>
+        <td class="formula-col-cell"><span>цель ${numberFormat(metric.targetQtyCalc || 0)}</span><strong>${numberFormat(metric.targetQtyCalc || 0)} − ${numberFormat(metric.available || 0)}</strong></td>
         <td class="num"><span class="need-pill ${needClass}">${numberFormat(metric.recommendedQtyCalc || 0)}</span></td>
         <td><button type="button" class="order-btn" data-reco-article="${escapeHtmlAttr(computed.sellerArticle)}" data-reco-cluster="${escapeHtmlAttr(metric.cluster)}">В форму</button></td>
       </tr>
     `;
-  }).join("") : `<tr><td colspan="8">По выбранному артикулу нет кластерных строк.</td></tr>`;
+  }).join("") : `<tr><td colspan="9">По выбранному артикулу нет кластерных строк.</td></tr>`;
 }
 
 function handleOrderRecommendationClick(event) {
@@ -932,7 +972,7 @@ function buildMatrixSheet(platform) {
     "Платформа", "Артикул", "Товар", "Категория", "Приоритет", "План месяца, шт", "План/день",
     "Осн. склад", "Кластер", "Склады в кластере", "Продажи 7д", "Продажи 14д", "Спрос 7д", "Спрос 14д", "Спрос 28д",
     `Спрос активный (${getTurnoverModeForPlatform(platform)}д)`, "Запас", "В пути", "Производство", "Закупка", "Доступно",
-    "Обор. 7д", "Обор. 14д", "Обор. 28д", `Обор. активная (${getTurnoverModeForPlatform(platform)}д)`,
+    "Цель покрытия, шт", "Формула к заказу", "Обор. 7д", "Обор. 14д", "Обор. 28д", `Обор. активная (${getTurnoverModeForPlatform(platform)}д)`,
     `Реком. к заказу (${getTurnoverModeForPlatform(platform)}д)`, "Целевые дни", "Дата прихода", "Комментарий", "Источник"
   ]];
 
@@ -960,6 +1000,8 @@ function buildMatrixSheet(platform) {
         metric.production || 0,
         metric.procurement || 0,
         metric.available || 0,
+        metric.targetQtyCalc || 0,
+        `цель ${numberFormat(metric.targetQtyCalc || 0)} - доступно ${numberFormat(metric.available || 0)} = рек. ${numberFormat(metric.recommendedQtyCalc || 0)}`,
         metric.coverage7DaysCalc ?? "",
         metric.coverage14DaysCalc ?? "",
         metric.coverage28DaysCalc ?? "",
@@ -1028,7 +1070,7 @@ function buildNeedSheet(platform = ninaState.platform) {
   const warehouseMap = getClusterWarehouseMap(platform);
   const rows = [[
     "Платформа", "Артикул", "Товар", "Приоритет", "План месяца, шт", "Продажи 7д", "Продажи 14д", `Спрос/день (${getTurnoverModeForPlatform(platform)}д)`,
-    "Кластер", "Склады", "Запас", "В пути", "Производство", "Закупка", "Доступно", `Оборачиваемость (${getTurnoverModeForPlatform(platform)}д)`,
+    "Кластер", "Склады", "Запас", "В пути", "Производство", "Закупка", "Доступно", "Цель покрытия, шт", "Формула к заказу", `Оборачиваемость (${getTurnoverModeForPlatform(platform)}д)`,
     `Реком. к заказу (${getTurnoverModeForPlatform(platform)}д)`, "Целевые дни", "Дата прихода", "Комментарий"
   ]];
   getAllComputedRows(platform)
@@ -1045,7 +1087,7 @@ function buildNeedSheet(platform = ninaState.platform) {
             row.monthPlanUnitsTotal || 0,
             metric.orders7d || 0,
             metric.orders14dCalc || 0,
-            row.totalActiveDemand || 0,
+            metric.activeDailyDemand || 0,
             metric.cluster,
             Array.from(warehouseMap.get(metric.cluster) || []).join(", "),
             metric.stock || 0,
@@ -1053,6 +1095,8 @@ function buildNeedSheet(platform = ninaState.platform) {
             metric.production || 0,
             metric.procurement || 0,
             metric.available || 0,
+            metric.targetQtyCalc || 0,
+            `цель ${numberFormat(metric.targetQtyCalc || 0)} - доступно ${numberFormat(metric.available || 0)} = рек. ${numberFormat(metric.recommendedQtyCalc || 0)}`,
             metric.activeCoverage ?? "",
             metric.recommendedQtyCalc || 0,
             metric.targetDays || getTargetDaysForPlatform(platform),

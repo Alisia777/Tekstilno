@@ -28,6 +28,9 @@
   --left-3: calc(var(--w-art) + var(--w-name));
   --left-4: calc(var(--w-art) + var(--w-name) + var(--w-pri));
   --left-5: calc(var(--w-art) + var(--w-name) + var(--w-pri) + var(--w-plan));
+  --matrix-head-top-2: 44px;
+  --matrix-head-top-3: 96px;
+  --matrix-head-total: 140px;
 }
 
 * { box-sizing: border-box; }
@@ -462,6 +465,7 @@ a { color: inherit; text-decoration: none; }
   border-radius: 16px;
   background: #fff;
   max-height: calc(100vh - 280px);
+  scroll-padding-top: calc(var(--matrix-head-total) + 8px);
 }
 .matrix-table {
   border-collapse: separate;
@@ -485,17 +489,19 @@ a { color: inherit; text-decoration: none; }
   background: #fbfdff;
   text-align: center;
   white-space: nowrap;
+  vertical-align: middle;
+  line-height: 1.2;
 }
 .matrix-table thead tr:first-child th {
   top: 0;
   z-index: 6;
 }
 .matrix-table thead tr:nth-child(2) th {
-  top: 44px;
+  top: var(--matrix-head-top-2);
   z-index: 5;
 }
 .matrix-table thead tr:nth-child(3) th {
-  top: 96px;
+  top: var(--matrix-head-top-3);
   z-index: 4;
 }
 .matrix-table tbody tr:hover td {
@@ -509,11 +515,40 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: .05em;
 }
 .cluster-group {
-  min-width: 540px;
+  min-width: 760px;
 }
 .metric-col {
   min-width: 84px;
   text-align: right;
+}
+.formula-col {
+  min-width: 156px;
+  text-align: left;
+}
+.formula-cell {
+  display: grid;
+  gap: 2px;
+  line-height: 1.18;
+}
+.formula-cell span,
+.formula-col-cell span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.formula-cell strong,
+.formula-col-cell strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+.formula-cell em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--blue);
+  font-weight: 700;
+}
+.formula-total {
+  background: #f8fbff !important;
 }
 .metric-col.col-comment,
 .metric-col.col-order { text-align: center; }
@@ -574,6 +609,9 @@ a { color: inherit; text-decoration: none; }
   cursor: pointer;
   padding: 0;
   text-align: left;
+}
+.matrix-table tbody tr {
+  scroll-margin-top: calc(var(--matrix-head-total) + 10px);
 }
 .muted { color: var(--muted); }
 
@@ -743,7 +781,7 @@ a { color: inherit; text-decoration: none; }
 .btn-primary-soft { background: #edf4ff; color: var(--blue); border-color: #cfe0ff; }
 
 .group-subhead, .warehouse-head { background: #f9fbff !important; color: var(--muted); font-size: 11px; }
-.warehouse-head { min-width: 540px; }
+.warehouse-head { min-width: 760px; }
 .warehouse-head .warehouse-list { justify-content: flex-start; }
 .warehouse-head .warehouse-note { display: inline-flex; }
 

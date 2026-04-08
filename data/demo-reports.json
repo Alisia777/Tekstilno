@@ -1,0 +1,58 @@
+[
+  {
+    "id": "demo-1",
+    "createdAt": "2026-04-08T09:12:00+03:00",
+    "author": "Анастасия",
+    "role": "manager_wb",
+    "platform": "WB",
+    "contour": "tasks",
+    "title": "Пакет WB · 20 артикулов",
+    "status": "sent",
+    "storage": "demo-shared",
+    "itemsCount": 20,
+    "note": "Отмечены статусы по пакету, 3 артикула вынесены в помощь руководителя.",
+    "route": "WB задачи"
+  },
+  {
+    "id": "demo-2",
+    "createdAt": "2026-04-08T09:24:00+03:00",
+    "author": "Ирина Паламарук",
+    "role": "manager_ozon",
+    "platform": "Ozon",
+    "contour": "tasks",
+    "title": "Пакет Ozon · 20 артикулов",
+    "status": "sent",
+    "storage": "demo-shared",
+    "itemsCount": 20,
+    "note": "По двум SKU нужна цена/маржа, по одному — решение по отгрузке.",
+    "route": "Ozon задачи"
+  },
+  {
+    "id": "demo-3",
+    "createdAt": "2026-04-08T10:02:00+03:00",
+    "author": "Координатор поставок",
+    "role": "coordinator_supply",
+    "platform": "WB",
+    "contour": "supply",
+    "title": "Заявка на пополнение по кластерам",
+    "status": "draft",
+    "storage": "demo-shared",
+    "itemsCount": 6,
+    "note": "Подготовлена потребность по Центральному и Приволжскому кластеру.",
+    "route": "Поставки"
+  },
+  {
+    "id": "demo-4",
+    "createdAt": "2026-04-08T10:40:00+03:00",
+    "author": "Вартан",
+    "role": "leader",
+    "platform": "All",
+    "contour": "control",
+    "title": "Проверка красной зоны",
+    "status": "reviewed",
+    "storage": "demo-shared",
+    "itemsCount": 5,
+    "note": "Согласован разбор топ-5 отклонений и фокус на маржу.",
+    "route": "Контроль продаж"
+  }
+]
