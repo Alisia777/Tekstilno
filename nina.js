@@ -197,8 +197,25 @@ async function refreshSharedState() {
   }));
 }
 
+function getCurrentTargetDays() {
+  return getTargetDaysForPlatform(ninaState.platform);
+}
+
+function getCurrentTurnoverMode() {
+  return getTurnoverModeForPlatform(ninaState.platform);
+}
+
 function syncUiState() {
   ninaEls.targetDaysInput.value = getCurrentTargetDays();
+}
+
+function updateToggleUi() {
+  ninaEls.platformButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.platform === ninaState.platform));
+  ninaEls.pageButtons.forEach((btn) => btn.classList.toggle('active', btn.dataset.page === ninaState.page));
+  ninaEls.turnoverButtons.forEach((btn) => btn.classList.toggle('active', Number(btn.dataset.turnoverMode) === getCurrentTurnoverMode()));
+  Object.entries(ninaEls.pagePanels).forEach(([key, panel]) => panel.classList.toggle('active', key === ninaState.page));
+  ninaEls.targetDaysInput.value = getCurrentTargetDays();
+  if (ninaEls.reportMonthBadge && ninaState.data?.reportMonth) ninaEls.reportMonthBadge.value = ninaState.data.reportMonth;
 }
 
 function switchPlatform(platform) {
@@ -508,8 +525,8 @@ function buildMatrixHead(clusters) {
   const totalLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Доступно", "Обор.", "Расчёт", "Реком."];
   const clusterLabels = ["Продажи 7д", "Продажи 14д", "План/д", "План/мес", "Запас", "В пути", "Пр-во", "Закуп", "Доступно", "Обор.", "Расчёт", "Реком.", "Дата прихода", "Коммент", "Заявка"];
   const top = [
-    `<th class="sticky-col col-article" rowspan="3">Артикул / размер</th>`,
-    `<th class="sticky-col-2 col-wb" rowspan="3">WB артикул</th>`,
+    `<th class="sticky-col col-article" rowspan="3">WB арт. / seller</th>`,
+    `<th class="sticky-col-2 col-wb" rowspan="3">Артикул / размер</th>`,
     `<th class="sticky-col-3 col-name" rowspan="3">Товар</th>`,
     `<th class="sticky-col-4 col-priority" rowspan="3">Приоритет</th>`,
     `<th class="sticky-col-5 col-planmonth" rowspan="3">План мес., шт</th>`,
@@ -602,8 +619,8 @@ function buildMatrixRow(row, clusters) {
 
   return `
     <tr data-row-article="${escapeHtmlAttr(row.sellerArticle)}">
-      <td class="sticky-col col-article"><button type="button" class="article-link" data-article-open="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)}</button><br><span class="muted">Ozon: ${escapeHtml(row.ozonArticle || '—')}</span></td>
-      <td class="sticky-col-2 col-wb"><strong>${escapeHtml(row.wbArticle || '—')}</strong></td>
+      <td class="sticky-col col-article"><button type="button" class="article-link" data-article-open="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.wbArticle || row.sellerArticle || '—')}</button><br><span class="muted">seller: ${escapeHtml(row.sellerArticle || '—')}</span><br><span class="muted">Ozon: ${escapeHtml(row.ozonArticle || '—')}</span></td>
+      <td class="sticky-col-2 col-wb"><strong>${escapeHtml(row.sellerArticle || '—')}</strong></td>
       <td class="sticky-col-3 col-name"><strong>${escapeHtml(row.name || "")}</strong><br><span class="muted">${escapeHtml(row.category || "")}</span></td>
       <td class="sticky-col-4 col-priority"><span class="priority-pill ${priorityClass}">${escapeHtml(row.priorityLabel || "—")}</span></td>
       <td class="sticky-col-5 col-planmonth">${numberFormat(row.monthPlanUnitsTotal || 0)}</td>
@@ -739,7 +756,7 @@ function renderSelectedCard() {
   }
 
   ninaState.selectedArticle = row.sellerArticle;
-  ninaEls.selectedSubtitle.textContent = `${ninaState.platform} · ${row.sellerArticle}`;
+  ninaEls.selectedSubtitle.textContent = `${ninaState.platform} · WB ${row.wbArticle || '—'} · ${row.sellerArticle}`;
   ninaEls.selectedArticleCard.className = "selected-card";
 
   const warehouseMap = getClusterWarehouseMap();
@@ -760,7 +777,7 @@ function renderSelectedCard() {
           <span class="tag-pill">Ozon: ${escapeHtml(row.ozonArticle || "—")}</span>
         </div>
       </div>
-      <div class="tag-pill">Текущий арт.: ${escapeHtml(row.platformArticle || "—")}</div>
+      <div class="tag-pill">WB: ${escapeHtml(row.wbArticle || "—")} · seller: ${escapeHtml(row.sellerArticle || "—")}</div>
     </div>
 
     <div class="article-summary">
@@ -844,8 +861,8 @@ function renderTopDeficits() {
 
   ninaEls.topDeficitsList.innerHTML = rows.length ? rows.map((row) => `
     <button type="button" class="deficit-item" data-top-deficit="${escapeHtmlAttr(row.sellerArticle)}">
-      <strong>${escapeHtml(row.sellerArticle)}</strong>
-      <div class="muted">WB: ${escapeHtml(row.wbArticle || "—")}</div>
+      <strong>WB ${escapeHtml(row.wbArticle || "—")}</strong>
+      <div class="muted">seller: ${escapeHtml(row.sellerArticle)}</div>
       <div>${escapeHtml(row.name || "")}</div>
       <div class="deficit-meta">
         <span class="priority-pill priority-${row.priorityBucket || "low"}">${escapeHtml(row.priorityLabel || "—")}</span>
@@ -876,7 +893,7 @@ function renderClusterGuides() {
 
 function populateOrderSelectors() {
   const rows = getPlatformData().rows;
-  const options = rows.map((row) => `<option value="${escapeHtmlAttr(row.sellerArticle)}">${escapeHtml(row.sellerArticle)} · ${escapeHtml(row.name || "")}</option>`).join("");
+  const options = rows.map((row) => `<option value="${escapeHtmlAttr(row.sellerArticle)}">WB ${escapeHtml(row.wbArticle || "—")} · ${escapeHtml(row.sellerArticle)} · ${escapeHtml(row.name || "")}</option>`).join("");
   ninaEls.orderArticleSelect.innerHTML = options;
   if (!ninaEls.orderArticleSelect.value && rows.length) {
     ninaEls.orderArticleSelect.value = rows[0].sellerArticle;
@@ -984,7 +1001,7 @@ function renderOrderRecommendations() {
     return (b.recommendedQtyCalc || 0) - (a.recommendedQtyCalc || 0) || (b.activeDailyDemand || 0) - (a.activeDailyDemand || 0);
   });
 
-  ninaEls.orderRecommendationMeta.textContent = `${ninaState.platform} · ${computed.sellerArticle} · WB ${computed.wbArticle || "—"}. Рекомендация считается по продажам, текущему горизонту ${getCurrentTurnoverMode()} дн и целевому покрытию ${getCurrentTargetDays()} дн.`;
+  ninaEls.orderRecommendationMeta.textContent = `${ninaState.platform} · WB ${computed.wbArticle || "—"} · ${computed.sellerArticle}. Рекомендация считается по продажам, текущему горизонту ${getCurrentTurnoverMode()} дн и целевому покрытию ${getCurrentTargetDays()} дн.`;
 
   ninaEls.orderRecommendationBody.innerHTML = metrics.length ? metrics.map((metric) => {
     const needClass = metric.recommendedQtyCalc > 100 ? "need-high" : metric.recommendedQtyCalc > 0 ? "need-mid" : "need-zero";
@@ -1027,7 +1044,7 @@ function renderOrdersTable() {
     <tr>
       <td>${escapeHtml(formatDateTime(item.createdAt))}</td>
       <td>${escapeHtml(item.platform)}</td>
-      <td><strong>${escapeHtml(item.sellerArticle)}</strong><div class="muted">WB: ${escapeHtml(item.wbArticle || "—")}</div></td>
+      <td><strong>WB ${escapeHtml(item.wbArticle || "—")}</strong><div class="muted">seller: ${escapeHtml(item.sellerArticle)}</div></td>
       <td>${escapeHtml(item.ozonArticle || "—")}</td>
       <td>${escapeHtml(item.cluster)}</td>
       <td class="num">${numberFormat(item.recommendedQty || 0)}</td>

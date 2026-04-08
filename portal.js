@@ -38,7 +38,7 @@ const VIEW_META = {
   },
   tasks: {
     title: 'Задачи менеджеров',
-    subtitle: 'WB и Ozon разведены по своим пакетам. В работу попадают только артикулы с красной заливкой Вартана.'
+    subtitle: 'WB и Ozon разведены по своим спискам. В работу попадают только артикулы с красной заливкой Вартана из последних сводов маржинальности.'
   },
   supply: {
     title: 'Кластера и отгрузка',
@@ -273,6 +273,56 @@ function getTaskPool(manager) {
     : (manager.articles || []);
 }
 
+function getFocusedRows(manager) {
+  const rows = getTaskPool(manager);
+  return rows.filter((item) => item?.focusMeta?.active || item?.focusPinned || !Array.isArray(manager?.focusArticles) || manager.focusArticles.includes(item));
+}
+
+function getTaskDueDate(rows) {
+  const dates = rows.map((item) => item.focusDeadline || item.focusMeta?.dueDate).filter(Boolean).sort();
+  return dates[0] || appState.workDate;
+}
+
+function getFocusViewByChannel(channel) {
+  const entry = getManagerByChannel(channel);
+  if (!entry) return null;
+  const [managerName, manager] = entry;
+  const rows = getFocusedRows(manager);
+  return {
+    channel,
+    managerName,
+    manager,
+    rows,
+    taskPoolCount: rows.length,
+    dueDate: getTaskDueDate(rows),
+    focusProgram: manager.focusProgram || null
+  };
+}
+
+function isLatestMarginArticle(article) {
+  return Boolean(article?.metrics?.latestMarginSource);
+}
+
+function summarizeTaskAttention(row) {
+  const focus = row.focusMeta || {};
+  const issueLabel = (focus.issueMetrics || []).length ? focus.issueMetrics.join(', ') : (focus.issueMetric || 'Красная зона');
+  const plan = getRowPlanDay(row);
+  const fact = getRowFactDay(row);
+  const deltaPct = plan ? ((fact - plan) / plan) * 100 : 0;
+  const bits = [`${issueLabel}: план ${formatNum(plan, 1)} / факт ${formatNum(fact, 1)} / Δ ${formatNum(deltaPct, 1)}%`];
+  if (row.metrics?.factMarginDay) bits.push(`маржа ${formatMoney(row.metrics.factMarginDay)}/д`);
+  if (row.metrics?.factMarginPct) bits.push(`марж. ${formatNum(row.metrics.factMarginPct, 1)}%`);
+  if (row.metrics?.buyoutPct) bits.push(`выкуп ${formatNum(row.metrics.buyoutPct, 1)}%`);
+  if (row.metrics?.cancelRatePct) bits.push(`отмены ${formatNum(row.metrics.cancelRatePct, 1)}%`);
+  return bits.join(' · ');
+}
+
+function renderTaskWorkstreams(row) {
+  const streams = row.focusMeta?.workstreams || [];
+  if (!streams.length) return '';
+  return `<div class="task-chip-row">${streams.map((item) => `<span class="task-mini-chip">${escapeHtml(item)}</span>`).join('')}</div>`;
+}
+
 function getFocusProgram(manager) {
   return manager?.focusProgram || null;
 }
@@ -338,11 +388,9 @@ function getTaskRowsForCurrentSelection() {
   if (appState.role === 'manager_wb') channel = 'WB';
   if (appState.role === 'manager_ozon') channel = 'Ozon';
   if (channel === 'All') channel = 'WB';
-  const managerEntry = getManagerByChannel(channel);
-  if (!managerEntry) return { channel, managerName: '', manager: null, rows: [], packNumber: 1, totalPacks: 1 };
-  const [managerName] = managerEntry;
-  const packInfo = getPackForManager(managerName);
-  return { channel, ...packInfo, rows: packInfo.packArticles };
+  const focusView = getFocusViewByChannel(channel);
+  if (!focusView) return { channel, managerName: '', manager: null, rows: [], taskPoolCount: 0, dueDate: appState.workDate, focusProgram: null };
+  return focusView;
 }
 
 function getRowPlanDay(article) {
@@ -370,18 +418,25 @@ function getRowNetMarginPct(article) {
 }
 
 function getEstimatedFactMarginDay(article) {
+  const direct = Number(article.metrics?.factMarginDay || 0);
+  if (direct) return direct;
   const revenue = getRowFactRevenue(article);
-  const pct = getRowPlanMarginPct(article);
+  const pct = Number(article.metrics?.factMarginPct || getRowPlanMarginPct(article) || 0);
   return revenue * pct / 100;
 }
 
 function getEstimatedFactPnlDay(article) {
+  const direct = Number(article.metrics?.factPnlDay || article.metrics?.factMarginDay || 0);
+  if (direct) return direct;
   const revenue = getRowFactRevenue(article);
   const pct = getRowNetMarginPct(article);
   return revenue * pct / 100;
 }
 
 function getRowPlanPnlDay(article) {
+  const monthKey = getMonthKey();
+  const direct = Number(article.monthlyPlan?.[monthKey]?.planPnlDay || 0);
+  if (direct) return direct;
   const revenuePlan = getRowPlanRevenueDay(article);
   const pct = getRowNetMarginPct(article);
   if (!revenuePlan) return getRowPlanMarginDay(article);
@@ -420,11 +475,13 @@ function renderArticleIdentity(row, options = {}) {
   const wb = row.wbArticle || (row.platformArticleLabel === 'WB артикул' ? (row.platformArticle || '—') : '—');
   const ozon = row.ozonProductId || row.ozonArticle || (row.platformArticleLabel === 'Ozon артикул' ? row.platformArticle : '') || '—';
   const lines = [
-    `<strong>${escapeHtml(row.sellerArticle || '—')}</strong>`
+    `<div class="identity-stack">`,
+    `<strong>WB ${escapeHtml(String(wb || '—'))}</strong>`,
+    `<span class="muted">seller: ${escapeHtml(row.sellerArticle || '—')}</span>`
   ];
   if (options.showName && row.name) lines.push(`<span class="muted">${escapeHtml(row.name)}</span>`);
-  lines.push(`<span class="muted">WB: ${escapeHtml(String(wb || '—'))}</span>`);
   lines.push(`<span class="muted">Ozon: ${escapeHtml(String(ozon || '—'))}</span>`);
+  lines.push(`</div>`);
   return lines.join('');
 }
 
@@ -483,22 +540,21 @@ async function saveDailySummary() {
     author_role: taskInfo.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
     platform: taskInfo.channel,
     contour: 'tasks',
-    title: `${taskInfo.channel} · дневной срез`,
+    title: `${taskInfo.channel} · закрепленный список`,
     route: `${taskInfo.channel} · задачи`,
     status: 'saved',
     items_count: taskInfo.rows.length,
-    note: `Пакет ${taskInfo.packNumber}/${taskInfo.totalPacks}. Готово: ${statusCounts.done}, в работе: ${statusCounts.in_progress}, нужна помощь: ${statusCounts.need_help}.`,
+    note: `Список ${taskInfo.rows.length} SKU. Готово: ${statusCounts.done}, в работе: ${statusCounts.in_progress}, нужна помощь: ${statusCounts.need_help}.`,
     storage_label: appState.storage.getDescriptor().label,
     payload: {
-      packNumber: taskInfo.packNumber,
-      totalPacks: taskInfo.totalPacks
+      focusedCount: taskInfo.rows.length
     }
   };
   await appState.storage.saveReport(report);
   appState.sharedReports = [report, ...appState.sharedReports].slice(0, 200);
   renderDashboardView();
   renderReportsView();
-  alert(appState.storage.isShared() ? 'Срез дня сохранён в общем журнале.' : 'Срез дня сохранён в текущей сессии. Чтобы его видели все, подключи backend.');
+  alert(appState.storage.isShared() ? 'Список дня сохранён в общем журнале.' : 'Список дня сохранён в текущей сессии. Чтобы его видели все, подключи backend.');
 }
 
 function countTaskStatuses(rows) {
@@ -515,15 +571,15 @@ function getAllReports() {
 }
 
 function renderDashboardView() {
-  const wbPack = (() => { const wb = getManagerByChannel('WB'); return wb ? getPackForManager(wb[0]) : null; })();
-  const ozonPack = (() => { const oz = getManagerByChannel('Ozon'); return oz ? getPackForManager(oz[0]) : null; })();
+  const wbFocus = getFocusViewByChannel('WB');
+  const ozonFocus = getFocusViewByChannel('Ozon');
   const coordinator = getCoordinatorEntry();
   const reports = getAllReports();
   const deviations = getTopDeviations();
   const supplyRows = getTopSupplyRows();
   const dashboardCards = [
-    { label: 'WB пакет сегодня', value: wbPack?.packArticles.length || 0, note: wbPack ? `Пакет ${wbPack.packNumber}/${wbPack.totalPacks}` : '—' },
-    { label: 'Ozon пакет сегодня', value: ozonPack?.packArticles.length || 0, note: ozonPack ? `Пакет ${ozonPack.packNumber}/${ozonPack.totalPacks}` : '—' },
+    { label: 'WB в работе', value: wbFocus?.rows.length || 0, note: wbFocus ? `Закреплено за Анастасией` : '—' },
+    { label: 'Ozon в работе', value: ozonFocus?.rows.length || 0, note: ozonFocus ? `Закреплено за Ириной` : '—' },
     { label: 'Сохранений видно', value: reports.length, note: 'В журнале review-версии', highlight: true },
     { label: 'Красная зона', value: deviations.filter((row) => row.deltaPct <= -0.3).length, note: 'Отклонение к плану ≤ -30%' },
     { label: 'Топ потребность', value: formatNum(sum(supplyRows.slice(0, 5).map((row) => row.totalNeed))), note: 'Сумма топ-5 дефицитов' },
@@ -538,8 +594,8 @@ function renderDashboardView() {
   `).join('');
 
   const people = [];
-  if (wbPack) people.push(buildPersonCard('Анастасия', 'WB', wbPack));
-  if (ozonPack) people.push(buildPersonCard('Ирина Паламарук', 'Ozon', ozonPack));
+  if (wbFocus) people.push(buildPersonCard('Анастасия', 'WB', wbFocus));
+  if (ozonFocus) people.push(buildPersonCard('Ирина Паламарук', 'Ozon', ozonFocus));
   if (coordinator) {
     const critical = coordinator[1].articles.filter((item) => item.priorityBucket === 'critical').length;
     people.push({
@@ -572,7 +628,7 @@ function renderDashboardView() {
   `).join('');
 
   els.dashboardDeviations.innerHTML = renderSimpleTable([
-    { key: 'article', label: 'Артикул' },
+    { key: 'article', label: 'WB арт. / seller' },
     { key: 'platform', label: 'Площадка' },
     { key: 'plan', label: 'План/д' },
     { key: 'fact', label: 'Факт/д' },
@@ -584,11 +640,11 @@ function renderDashboardView() {
     plan: formatNum(row.planDay, 1),
     fact: formatNum(row.factDay, 1),
     delta: `<span class="${row.deltaPct < 0 ? 'negative' : 'positive'}">${formatPct(row.deltaPct)}</span>`,
-    margin: formatMoney(row.marginDay)
+    margin: formatMoney(row.factMarginDay || row.marginDay)
   })));
 
   els.dashboardSupply.innerHTML = renderSimpleTable([
-    { key: 'article', label: 'Артикул' },
+    { key: 'article', label: 'WB арт. / seller' },
     { key: 'platform', label: 'Площадка' },
     { key: 'need', label: 'Нужно' },
     { key: 'cluster', label: 'Главный кластер' },
@@ -602,16 +658,15 @@ function renderDashboardView() {
   })));
 }
 
-function buildPersonCard(name, channel, packInfo) {
-  const critical = packInfo.packArticles.filter((item) => item.priorityBucket === 'critical').length;
-  const help = packInfo.packArticles.filter((item) => getTaskState(item).status === 'need_help').length;
-  const plan = sum(packInfo.packArticles.map((item) => getRowPlanDay(item)));
-  const focusLabel = packInfo.focusProgram ? `Закреплено ${packInfo.taskPoolCount} SKU` : `${packInfo.taskPoolCount} SKU`;
+function buildPersonCard(name, channel, focusInfo) {
+  const critical = focusInfo.rows.filter((item) => item.priorityBucket === 'critical').length;
+  const help = focusInfo.rows.filter((item) => getTaskState(item).status === 'need_help').length;
+  const plan = sum(focusInfo.rows.map((item) => getRowPlanDay(item)));
   return {
     name,
     channel,
-    text: `Открыт пакет ${packInfo.packNumber}/${packInfo.totalPacks}. В работе ${packInfo.packArticles.length} артикулов. Срок пакета: ${formatShortDate(packInfo.dueDate)}.`,
-    stats: [focusLabel, `План/д: ${formatNum(plan, 1)}`, `Помощь: ${help}`, `Критичных: ${critical}`]
+    text: `В работе закрепленный список ${focusInfo.rows.length} SKU. Ближайшая контрольная дата: ${formatShortDate(focusInfo.dueDate)}.`,
+    stats: [`Закреплено: ${focusInfo.rows.length} SKU`, `План/д: ${formatNum(plan, 1)}`, `Помощь: ${help}`, `Критичных: ${critical}`]
   };
 }
 
@@ -622,16 +677,16 @@ function renderTasksView() {
   const rows = taskInfo.rows.filter((row) => {
     const state = getTaskState(row);
     const matchesStatus = statusFilter === 'all' || state.status === statusFilter;
-    const hay = `${row.sellerArticle} ${row.name} ${row.action} ${row.reason} ${row.focusSummary || ''} ${row.wbArticle || ''} ${row.ozonProductId || row.ozonArticle || ''}`.toLowerCase();
+    const hay = `${row.sellerArticle} ${row.wbArticle || ''} ${row.ozonProductId || row.ozonArticle || ''} ${row.name} ${row.action} ${row.reason} ${row.focusSummary || ''} ${row.attentionNote || ''}`.toLowerCase();
     const matchesQuery = !query || hay.includes(query);
     return matchesStatus && matchesQuery;
   });
   const statusCounts = countTaskStatuses(taskInfo.rows);
   const focusNotes = taskInfo.focusProgram?.notes || [];
-  const sprint = taskInfo.focusProgram?.dailyTemplate || appState.data.plan?.focusPrograms?.dailyTemplate || [];
+  const sprint = taskInfo.focusProgram?.dailyTemplate || [];
   const managerTitle = taskInfo.managerName || '—';
   const channelLabel = taskInfo.channel || '—';
-  els.taskPackMeta.textContent = `Закреплённый пакет ${taskInfo.packNumber}/${taskInfo.totalPacks} на ${formatDate(appState.workDate)}. Внутри ${taskInfo.rows.length} SKU из ${taskInfo.taskPoolCount}. Срок исполнения пакета: ${formatDate(taskInfo.dueDate)}.`;
+  els.taskPackMeta.textContent = `Закреплённый список на ${formatDate(appState.workDate)}. Внутри ${taskInfo.rows.length} SKU. Контрольная дата: ${formatDate(taskInfo.dueDate)}.`;
   els.taskManagerCard.innerHTML = `
     <div class="task-head-grid">
       <div>
@@ -639,10 +694,9 @@ function renderTasksView() {
         <p>${escapeHtml(taskInfo.manager?.responsibility || '')}</p>
       </div>
       <div class="task-meta-chips">
-        <span class="tag-chip">Закреплено: ${taskInfo.taskPoolCount} SKU</span>
-        <span class="tag-chip">Пакет: ${taskInfo.packNumber}/${taskInfo.totalPacks}</span>
-        <span class="tag-chip">Старт: ${formatDate(taskInfo.packDate)}</span>
-        <span class="tag-chip danger">Срок: ${formatDate(taskInfo.dueDate)}</span>
+        <span class="tag-chip">Закреплено: ${taskInfo.rows.length} SKU</span>
+        <span class="tag-chip danger">Контроль: ${formatDate(taskInfo.dueDate)}</span>
+        <span class="tag-chip">Источник: последние своды маржинальности</span>
       </div>
     </div>
     <p class="help-text">Статусы: не начато — ${statusCounts.todo}, в работе — ${statusCounts.in_progress}, готово — ${statusCounts.done}, нужна помощь — ${statusCounts.need_help}.</p>
@@ -653,8 +707,8 @@ function renderTasksView() {
     <table class="tasks-table tasks-focus-table">
       <thead>
         <tr>
-          <th>Артикул / Ozon</th>
-          <th>WB арт.</th>
+          <th>WB арт. / seller</th>
+          <th>Ozon арт.</th>
           <th>Товар</th>
           <th>Приоритет</th>
           <th>Сигнал</th>
@@ -662,7 +716,7 @@ function renderTasksView() {
           <th>Факт/д</th>
           <th>Маржа/д</th>
           <th>Срок</th>
-          <th>Что сделать</th>
+          <th>На что смотреть / что сделать</th>
           <th>Статус</th>
           <th>Комментарий</th>
           <th></th>
@@ -691,28 +745,25 @@ function renderTaskRow(row) {
   const state = getTaskState(row);
   const focus = row.focusMeta || {};
   const issueMetric = focus.issueMetric || 'В работе';
-  const summary = row.focusSummary || (row.action || '').split('. ')[0] || '—';
-  const dailySteps = Array.isArray(focus.dailyPlan) ? focus.dailyPlan.slice(0, 3).map((item) => item.title.replace('День ', 'Д')).join(' · ') : 'SEO · Контент · Цена · Локализация · Контроль';
-  const metricMeta = (focus.planDayMetric || focus.factDayMetric)
-    ? `план ${formatMaybeNum(focus.planDayMetric, 1)} / факт ${formatMaybeNum(focus.factDayMetric, 1)} в день`
-    : ((focus.planMonthMetric || focus.factMonthMetric)
-        ? `план ${formatMaybeNum(focus.planMonthMetric, 0)} / факт ${formatMaybeNum(focus.factMonthMetric, 0)} в месяц`
-        : 'Красная заливка Вартана');
+  const metricMeta = summarizeTaskAttention(row);
+  const deadline = formatShortDate(focus.dueDate || row.focusDeadline || appState.workDate);
+  const starts = formatShortDate(row.focusStartDate || appState.workDate);
+  const mainAction = row.action || 'Зафиксировать причину, что сделано и следующий шаг.';
   return `
     <tr>
-      <td><strong>${escapeHtml(row.sellerArticle || '—')}</strong><div class="help-text">Ozon: ${escapeHtml(String(row.ozonProductId || row.ozonArticle || '—'))}</div></td>
-      <td><strong>${escapeHtml(String(row.wbArticle || '—'))}</strong></td>
+      <td><strong>${escapeHtml(String(row.wbArticle || '—'))}</strong><div class="help-text">seller: ${escapeHtml(row.sellerArticle || '—')}</div></td>
+      <td><strong>${escapeHtml(String(row.ozonProductId || row.ozonArticle || '—'))}</strong></td>
       <td><strong>${escapeHtml(row.name || '—')}</strong><div class="help-text">${escapeHtml(row.category || '')}</div></td>
       <td><span class="badge ${row.priorityBucket}">${escapeHtml(row.priorityLabel || '—')}</span></td>
-      <td><span class="signal-pill">${escapeHtml(issueMetric)}</span><div class="help-text">${metricMeta}</div></td>
+      <td><span class="signal-pill">${escapeHtml(issueMetric)}</span><div class="help-text">${escapeHtml(metricMeta)}</div></td>
       <td>${formatNum(getRowPlanDay(row), 1)}</td>
       <td>${formatNum(getRowFactDay(row), 1)}</td>
-      <td>${formatMoney(getRowPlanMarginDay(row))}</td>
-      <td><strong>${formatShortDate(focus.dueDate || row.focusDeadline || appState.workDate)}</strong><div class="help-text">старт ${formatShortDate(focus.packDate || row.focusStartDate || appState.workDate)}</div></td>
-      <td><strong>${escapeHtml(summary)}</strong><div class="help-text">${escapeHtml(row.reason || '')}</div><div class="task-chip-row">${dailySteps.split(' · ').map((item) => `<span class="task-mini-chip">${escapeHtml(item)}</span>`).join('')}</div></td>
+      <td>${formatMoney(getEstimatedFactMarginDay(row))}</td>
+      <td><strong>${deadline}</strong><div class="help-text">в работе с ${starts}</div></td>
+      <td><strong>${escapeHtml(mainAction)}</strong><div class="help-text">${escapeHtml(row.reason || row.attentionNote || '')}</div>${renderTaskWorkstreams(row)}</td>
       <td>
         <select class="inline-select task-status-input">
-          ${['todo','in_progress','done','need_help'].map((key) => `<option value="${key}" ${state.status === key ? 'selected' : ''}>${statusLabel(key)}</option>`).join('')}
+          ${['todo','in_progress','done','need_help'].map((status) => `<option value="${status}" ${state.status === status ? 'selected' : ''}>${statusLabel(status)}</option>`).join('')}
         </select>
       </td>
       <td><input class="inline-input inline-note task-comment-input" value="${escapeAttr(state.comment || '')}" placeholder="Что сделано / что мешает" /></td>
@@ -901,9 +952,9 @@ function renderControlView() {
 }
 
 function populateChartSelector(deviations) {
-  const rows = deviations.slice(0, 20);
+  const rows = deviations.slice(0, 30);
   if (!appState.selectedChartArticle && rows[0]) appState.selectedChartArticle = rows[0].sellerArticle;
-  els.chartArticleSelect.innerHTML = rows.map((row) => `<option value="${escapeAttr(row.sellerArticle)}" ${row.sellerArticle === appState.selectedChartArticle ? 'selected' : ''}>${escapeHtml(row.channel)} · ${escapeHtml(row.sellerArticle)} · WB ${escapeHtml(String(row.wbArticle || '—'))}</option>`).join('');
+  els.chartArticleSelect.innerHTML = rows.map((row) => `<option value="${escapeAttr(row.sellerArticle)}" ${row.sellerArticle === appState.selectedChartArticle ? 'selected' : ''}>WB ${escapeHtml(String(row.wbArticle || '—'))} · ${escapeHtml(row.sellerArticle)} · ${escapeHtml(row.channel)}</option>`).join('');
 }
 
 function getTopDeviations() {
@@ -915,6 +966,7 @@ function getTopDeviations() {
     if (!managerEntry) return;
     const [, manager] = managerEntry;
     (manager.articles || []).forEach((article) => {
+      if (!isLatestMarginArticle(article)) return;
       const planDay = Number(article.monthlyPlan?.[monthKey]?.planOrdersDay || article.metrics?.planOrdersDay || 0);
       if (!planDay) return;
       const factDay = Number(getRowFactDay(article) || 0);
@@ -943,10 +995,10 @@ function getMarginCompareRows() {
   const wbEntry = getManagerByChannel('WB');
   const ozEntry = getManagerByChannel('Ozon');
   if (!wbEntry || !ozEntry) return [];
-  const wbMap = new Map((wbEntry[1].articles || []).map((item) => [item.sellerArticle, item]));
+  const wbMap = new Map((wbEntry[1].articles || []).filter(isLatestMarginArticle).map((item) => [item.sellerArticle, item]));
   const rows = [];
 
-  (ozEntry[1].articles || []).forEach((ozItem) => {
+  (ozEntry[1].articles || []).filter(isLatestMarginArticle).forEach((ozItem) => {
     const wbItem = wbMap.get(ozItem.sellerArticle);
     if (!wbItem) return;
 
@@ -972,28 +1024,24 @@ function getMarginCompareRows() {
     if (wbPnlFact > ozonPnlFact * 1.07) {
       decisionKey = 'wb';
       decision = 'Фокус на WB';
-      note = wbGap > 0
-        ? 'WB сейчас дает выше чистую прибыль и ещё не добирает план.'
-        : 'WB сейчас прибыльнее по чистой прибыли, даже если темп уже близок к плану.';
+      note = wbGap > 0 ? 'WB сейчас дает выше чистую прибыль и ещё не добирает план.' : 'WB сейчас прибыльнее по чистой прибыли.';
     } else if (ozonPnlFact > wbPnlFact * 1.07) {
       decisionKey = 'ozon';
       decision = 'Фокус на Ozon';
-      note = ozGap > 0
-        ? 'Ozon сейчас дает выше чистую прибыль и ещё не добирает план.'
-        : 'Ozon сейчас прибыльнее по чистой прибыли, даже если темп уже близок к плану.';
+      note = ozGap > 0 ? 'Ozon сейчас дает выше чистую прибыль и ещё не добирает план.' : 'Ozon сейчас прибыльнее по чистой прибыли.';
     } else if (wbMarginFact > ozonMarginFact) {
       decisionKey = 'wb';
       decision = 'WB чуть сильнее';
-      note = 'По чистой прибыли площадки рядом, но у WB выше маржинальный эффект по факту.';
+      note = 'По чистой прибыли площадки рядом, но у WB выше маржинальный эффект.';
     } else if (ozonMarginFact > wbMarginFact) {
       decisionKey = 'ozon';
       decision = 'Ozon чуть сильнее';
-      note = 'По чистой прибыли площадки рядом, но у Ozon выше маржинальный эффект по факту.';
+      note = 'По чистой прибыли площадки рядом, но у Ozon выше маржинальный эффект.';
     }
 
     rows.push({
       sellerArticle: ozItem.sellerArticle,
-      wbArticle: wbItem.wbArticle || '',
+      wbArticle: wbItem.wbArticle || ozItem.wbArticle || '',
       ozonArticle: ozItem.ozonProductId || '',
       name: ozItem.name || wbItem.name || '—',
       wbPlan,

@@ -17,7 +17,7 @@
         <div class="brand-mark">Т</div>
         <div>
           <div class="brand-name">Текстильно</div>
-          <div class="brand-sub">Portal v26 · tasks / supply / pnl / reports</div>
+          <div class="brand-sub">Portal v27 · focus / supply / pnl / reports</div>
         </div>
       </div>
 
@@ -35,7 +35,7 @@
 
       <nav class="main-nav" id="mainNav">
         <button class="nav-link active" data-view="dashboard"><span>1. Обзор дня</span><small>Куда смотреть в первую очередь</small></button>
-        <button class="nav-link" data-view="tasks"><span>2. Задачи менеджеров</span><small>WB / Ozon · красная заливка Вартана и 20 SKU</small></button>
+        <button class="nav-link" data-view="tasks"><span>2. Задачи менеджеров</span><small>WB / Ozon · закрепленный список Вартана</small></button>
         <button class="nav-link" data-view="supply"><span>3. Кластера и поставки</span><small>Полная матрица, склады, потребность, заявки</small></button>
         <button class="nav-link" data-view="control"><span>4. Продажи, маржа и PnL</span><small>План / факт / прибыль / куда грузить</small></button>
         <button class="nav-link" data-view="reports"><span>5. Журнал сдачи</span><small>Что реально сохранили и кто это сделал</small></button>
@@ -50,7 +50,7 @@
         <article class="mini-card">
           <span>Дата проверки</span>
           <strong id="currentDateLabel">—</strong>
-          <small>Дата влияет на пакеты 20 артикулов и на текущие срезы контроля.</small>
+          <small>Дата влияет на текущие срезы контроля и журнал сохранений.</small>
         </article>
       </section>
     </aside>
@@ -60,7 +60,7 @@
         <div>
           <div class="eyebrow">Контуры портала</div>
           <h1 id="pageTitle">Обзор дня</h1>
-          <p id="pageSubtitle">Один портал без каши: фокус-артикулы менеджеров, поставки, продажи, PnL и журнал сдачи.</p>
+          <p id="pageSubtitle">Один портал без каши: список артикулов в работе, кластера и поставки, продажи, маржа/PnL и журнал сдачи.</p>
         </div>
         <div class="topbar-actions">
           <label class="field compact">
@@ -83,7 +83,7 @@
       <section class="contour-strip" id="contourStrip">
         <button class="contour-tile active" data-view="tasks" type="button">
           <strong>Задачи менеджеров</strong>
-          <small>Раздельно WB / Ozon, пакет 20 артикулов и прозрачный статус.</small>
+          <small>Раздельно WB / Ozon, закрепленный список артикулов и прозрачный статус.</small>
         </button>
         <button class="contour-tile" data-view="supply" type="button">
           <strong>Кластера и поставки</strong>
@@ -152,8 +152,8 @@
           <section class="panel panel-margin">
             <div class="panel-head panel-head-spread">
               <div>
-                <h2>Пакет задач на день</h2>
-                <p id="taskPackMeta">Фиксируем пакет по 20 артикулов. Менеджер отмечает только статус и комментарий.</p>
+                <h2>Список артикулов в работе</h2>
+                <p id="taskPackMeta">Видим весь закреплённый список по красной заливке Вартана. Менеджер отмечает только статус и комментарий.</p>
               </div>
               <div class="toolbar compact-toolbar">
                 <label class="field compact">
