@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v35-worklog",
+  siteVersion: "v36-worklog-fix",
   leaderName: "Вартан Борисович",
   storageMode: "shared-supabase",
   planDataUrl: "data/article-plan.json",

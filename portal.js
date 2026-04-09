@@ -27,7 +27,12 @@ const appState = {
   entityHistory: [],
   selectedChartArticle: null,
   lastSharedRefreshAt: null,
-  sharedRefreshTimer: null
+  sharedRefreshTimer: null,
+  taskCalendarAnchorDate: null,
+  uiDrafts: {
+    worklog: {}
+  },
+  suppressAutoSyncUntil: 0
 };
 
 const ROLE_PRESETS = {
@@ -83,6 +88,7 @@ async function initPortal() {
   appState.storage = createSharedStorage(appState.config);
   await loadData();
   enrichCrossReferences();
+  appState.taskCalendarAnchorDate = appState.workDate;
   await refreshSharedState();
   applyRolePreset(appState.role, false);
   startSharedRefreshLoop();
@@ -118,9 +124,7 @@ function bindEvents() {
   bindViewSwitch(els.mainNav);
   bindViewSwitch(els.contourStrip);
   els.workDateInput.addEventListener('change', async (e) => {
-    appState.workDate = e.target.value;
-    await refreshSharedState();
-    renderAll();
+    await setWorkDateAndRefresh(e.target.value, { forceCalendarAnchor: true });
   });
   els.platformToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
@@ -147,12 +151,14 @@ function bindEvents() {
   });
   document.addEventListener('visibilitychange', async () => {
     if (!document.hidden && appState.storage?.isShared()) {
+      if (shouldPauseAutoRefresh()) return;
       await refreshSharedState({ force: true });
       renderAll();
     }
   });
   window.addEventListener('focus', async () => {
     if (appState.storage?.isShared()) {
+      if (shouldPauseAutoRefresh()) return;
       await refreshSharedState({ force: true });
       renderAll();
     }
@@ -246,6 +252,84 @@ function buildBusinessDateWindow(centerDate, before = 7, after = 7) {
   return dates;
 }
 
+function getTaskCalendarCenterDate() {
+  return appState.taskCalendarAnchorDate || appState.workDate;
+}
+
+function isDateInTaskCalendarWindow(dateStr, centerDate = getTaskCalendarCenterDate()) {
+  return buildBusinessDateWindow(centerDate, 7, 7).includes(dateStr);
+}
+
+function syncTaskCalendarAnchor(dateStr, options = {}) {
+  const force = !!options.force;
+  if (!appState.taskCalendarAnchorDate || force || !isDateInTaskCalendarWindow(dateStr, appState.taskCalendarAnchorDate)) {
+    appState.taskCalendarAnchorDate = dateStr;
+  }
+}
+
+function getDefaultWorklogDraft(channel) {
+  return {
+    channel,
+    date: appState.workDate,
+    articleValue: '',
+    type: 'other',
+    status: 'in_progress',
+    body: ''
+  };
+}
+
+function getWorklogDraft(channel) {
+  if (!appState.uiDrafts.worklog[channel]) {
+    appState.uiDrafts.worklog[channel] = getDefaultWorklogDraft(channel);
+  }
+  return appState.uiDrafts.worklog[channel];
+}
+
+function isPristineWorklogDraft(draft) {
+  if (!draft) return true;
+  return !String(draft.articleValue || '').trim()
+    && !String(draft.body || '').trim()
+    && String(draft.type || 'other') === 'other'
+    && String(draft.status || 'in_progress') === 'in_progress';
+}
+
+function syncWorklogDraftDates(dateStr, options = {}) {
+  const onlyIfPristine = options.onlyIfPristine !== false;
+  ['WB', 'Ozon'].forEach((channel) => {
+    const draft = getWorklogDraft(channel);
+    if (!onlyIfPristine || isPristineWorklogDraft(draft)) draft.date = dateStr;
+  });
+}
+
+function updateWorklogDraft(channel, patch = {}, options = {}) {
+  const current = getWorklogDraft(channel);
+  appState.uiDrafts.worklog[channel] = {
+    ...current,
+    ...patch
+  };
+  if (options.markEditing !== false) appState.suppressAutoSyncUntil = Date.now() + 30000;
+  return appState.uiDrafts.worklog[channel];
+}
+
+function clearWorklogDraft(channel, dateValue = appState.workDate) {
+  appState.uiDrafts.worklog[channel] = {
+    ...getDefaultWorklogDraft(channel),
+    date: dateValue || appState.workDate
+  };
+  appState.suppressAutoSyncUntil = 0;
+}
+
+function shouldPauseAutoRefresh() {
+  if (Date.now() < appState.suppressAutoSyncUntil) return true;
+  const active = document.activeElement;
+  if (!active) return false;
+  return !!(
+    active.closest('.worklog-panel') ||
+    active.closest('.tasks-table') ||
+    active.closest('.planner-toolbar')
+  );
+}
+
 function formatTimeOnly(dateLike) {
   if (!dateLike) return '—';
   const date = new Date(dateLike);
@@ -257,11 +341,11 @@ function startSharedRefreshLoop() {
   if (!appState.storage?.isShared()) return;
   if (appState.sharedRefreshTimer) clearInterval(appState.sharedRefreshTimer);
   appState.sharedRefreshTimer = setInterval(async () => {
-    if (document.hidden) return;
+    if (document.hidden || shouldPauseAutoRefresh()) return;
     try {
       await refreshSharedState({ force: true });
       if (appState.view === 'reports') renderReportsView();
-      else renderViewState();
+      else renderAll();
     } catch (error) {
       console.error(error);
       if (els.syncStatusNote) els.syncStatusNote.textContent = 'Ошибка синхр.';
@@ -270,7 +354,7 @@ function startSharedRefreshLoop() {
 }
 
 async function refreshSharedState(options = {}) {
-  const calendarWindow = buildBusinessDateWindow(appState.workDate, 7, 7);
+  const calendarWindow = buildBusinessDateWindow(getTaskCalendarCenterDate(), 7, 7);
   const rangeStart = calendarWindow[0];
   const rangeEnd = calendarWindow[calendarWindow.length - 1];
   if (els.syncStatusNote) els.syncStatusNote.textContent = appState.storage?.isShared() ? 'Синхронизация…' : 'Локальный режим';
@@ -303,6 +387,7 @@ function applyRolePreset(role, rerender = true) {
   if (role === 'manager_wb' || role === 'manager_ozon') appState.platform = preset.defaultPlatform;
   appState.view = preset.defaultView;
   els.roleSelect.value = role;
+  syncTaskCalendarAnchor(appState.workDate);
   if (rerender) renderAll();
 }
 
@@ -533,8 +618,10 @@ function shiftBusinessDate(dateStr, deltaDays) {
   return current;
 }
 
-async function setWorkDateAndRefresh(dateStr) {
+async function setWorkDateAndRefresh(dateStr, options = {}) {
   appState.workDate = dateStr;
+  syncTaskCalendarAnchor(dateStr, { force: !!options.forceCalendarAnchor });
+  syncWorklogDraftDates(dateStr, { onlyIfPristine: true });
   els.workDateInput.value = dateStr;
   await refreshSharedState();
   renderAll();
@@ -770,7 +857,7 @@ function getTaskCalendarData(channel) {
   const managerEntry = getManagerByChannel(channel);
   if (!managerEntry) return [];
   const [managerName] = managerEntry;
-  const dates = buildBusinessDateWindow(appState.workDate, 7, 7);
+  const dates = buildBusinessDateWindow(getTaskCalendarCenterDate(), 7, 7);
   const today = new Date().toISOString().slice(0, 10);
   return dates.map((date) => {
     const packInfo = getPackForManager(managerName, date);
@@ -949,7 +1036,9 @@ function renderWorklogArticleHint(article) {
 }
 
 function renderTaskWorklogPanel(channel) {
+  const draft = getWorklogDraft(channel);
   const entries = getWorklogEntries(channel).slice(0, 20);
+  const selectedArticle = findCatalogArticle(channel, draft.articleValue || '');
   const table = renderSimpleTable([
     { key: 'time', label: 'Когда' },
     { key: 'article', label: 'Артикул' },
@@ -972,16 +1061,16 @@ function renderTaskWorklogPanel(channel) {
           <strong>Доп. строка работы по артикулу</strong>
           <p class="help-text">Если менеджер работал не по фиксированным 20 SKU, он выбирает артикул из полной матрицы, ставит дату и пишет, что сделал. Это append-only журнал: новая запись не стирает старую.</p>
         </div>
-        <div class="pill-note">Дата записи по умолчанию = рабочая дата сверху, но её можно поменять прямо здесь.</div>
+        <div class="pill-note">Дата записи по умолчанию = рабочая дата сверху, но её можно поменять прямо здесь. Черновик не слетит, даже если портал обновится.</div>
       </div>
       <div class="worklog-grid">
         <label class="worklog-field">
           <span>Дата работы</span>
-          <input class="inline-input" id="worklogDateInput" type="date" value="${escapeAttr(appState.workDate)}" />
+          <input class="inline-input" id="worklogDateInput" type="date" value="${escapeAttr(draft.date || appState.workDate)}" />
         </label>
         <label class="worklog-field worklog-field-wide">
           <span>Артикул из полной матрицы</span>
-          <input class="inline-input" id="worklogArticleInput" list="${datalistId}" placeholder="WB арт. или sellerArticle" />
+          <input class="inline-input" id="worklogArticleInput" list="${datalistId}" placeholder="WB арт. или sellerArticle" value="${escapeAttr(draft.articleValue || '')}" />
           <datalist id="${datalistId}">
             ${catalog.map((item) => `<option value="${escapeAttr(item.sellerArticle)}" label="WB ${escapeAttr(String(item.wbArticle || '—'))} · ${escapeAttr(item.name || item.category || '')}"></option>`).join('')}
           </datalist>
@@ -989,23 +1078,23 @@ function renderTaskWorklogPanel(channel) {
         <label class="worklog-field">
           <span>Тип работы</span>
           <select class="inline-select" id="worklogTypeInput">
-            ${WORK_TYPE_OPTIONS.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join('')}
+            ${WORK_TYPE_OPTIONS.map((item) => `<option value="${item.value}" ${item.value === (draft.type || 'other') ? 'selected' : ''}>${escapeHtml(item.label)}</option>`).join('')}
           </select>
         </label>
         <label class="worklog-field">
           <span>Статус</span>
           <select class="inline-select" id="worklogStatusInput">
-            <option value="in_progress">В работе</option>
-            <option value="done">Готово</option>
-            <option value="need_help">Нужна помощь</option>
-            <option value="saved">Сохранено</option>
+            <option value="in_progress" ${String(draft.status || 'in_progress') === 'in_progress' ? 'selected' : ''}>В работе</option>
+            <option value="done" ${String(draft.status || 'in_progress') === 'done' ? 'selected' : ''}>Готово</option>
+            <option value="need_help" ${String(draft.status || 'in_progress') === 'need_help' ? 'selected' : ''}>Нужна помощь</option>
+            <option value="saved" ${String(draft.status || 'in_progress') === 'saved' ? 'selected' : ''}>Сохранено</option>
           </select>
         </label>
       </div>
-      <div id="worklogArticleHint" class="worklog-hint">${renderWorklogArticleHint(null)}</div>
+      <div id="worklogArticleHint" class="worklog-hint">${renderWorklogArticleHint(selectedArticle)}</div>
       <label class="worklog-field" style="margin-top:12px;">
         <span>Что сделали / на что обратить внимание</span>
-        <textarea class="inline-input inline-textarea" id="worklogBodyInput" placeholder="Например: проверила карточку, отключила рекламу, обновила цену, проверила SEO, внесла изменения по контенту..."></textarea>
+        <textarea class="inline-input inline-textarea" id="worklogBodyInput" placeholder="Например: проверила карточку, отключила рекламу, обновила цену, проверила SEO, внесла изменения по контенту...">${escapeHtml(draft.body || '')}</textarea>
       </label>
       <div class="worklog-actions">
         <button class="btn btn-primary" id="saveWorklogBtn" type="button">Добавить строку в общую сводную</button>
@@ -1013,7 +1102,7 @@ function renderTaskWorklogPanel(channel) {
       </div>
       <div class="worklog-journal">
         <div class="worklog-journal-head">
-          <strong>Уже сохранено за ${escapeHtml(formatDate(appState.workDate))}</strong>
+          <strong>Уже сохранено за ${escapeHtml(formatDate(draft.date || appState.workDate))}</strong>
           <span class="pill-note">${entries.length} записей по ${escapeHtml(channel)}</span>
         </div>
         <div class="simple-table-wrap">${table}</div>
@@ -1024,14 +1113,37 @@ function renderTaskWorklogPanel(channel) {
 
 function bindTaskWorklogPanel(channel) {
   const articleInput = document.getElementById('worklogArticleInput');
+  const dateInput = document.getElementById('worklogDateInput');
+  const typeInput = document.getElementById('worklogTypeInput');
+  const statusInput = document.getElementById('worklogStatusInput');
+  const bodyInput = document.getElementById('worklogBodyInput');
   const hint = document.getElementById('worklogArticleHint');
+  const markEditing = () => { appState.suppressAutoSyncUntil = Date.now() + 30000; };
   if (articleInput && hint) {
-    const refreshHint = () => {
+    const refreshHint = (markEditing = true) => {
+      updateWorklogDraft(channel, { articleValue: articleInput.value }, { markEditing });
       hint.innerHTML = renderWorklogArticleHint(findCatalogArticle(channel, articleInput.value));
     };
-    articleInput.addEventListener('input', refreshHint);
-    articleInput.addEventListener('change', refreshHint);
-    refreshHint();
+    articleInput.addEventListener('input', () => refreshHint(true));
+    articleInput.addEventListener('change', () => refreshHint(true));
+    articleInput.addEventListener('focus', markEditing);
+    refreshHint(false);
+  }
+  if (dateInput) {
+    dateInput.addEventListener('change', () => updateWorklogDraft(channel, { date: dateInput.value || appState.workDate }));
+    dateInput.addEventListener('focus', markEditing);
+  }
+  if (typeInput) {
+    typeInput.addEventListener('change', () => updateWorklogDraft(channel, { type: typeInput.value || 'other' }));
+    typeInput.addEventListener('focus', markEditing);
+  }
+  if (statusInput) {
+    statusInput.addEventListener('change', () => updateWorklogDraft(channel, { status: statusInput.value || 'in_progress' }));
+    statusInput.addEventListener('focus', markEditing);
+  }
+  if (bodyInput) {
+    bodyInput.addEventListener('input', () => updateWorklogDraft(channel, { body: bodyInput.value }));
+    bodyInput.addEventListener('focus', markEditing);
   }
   const saveBtn = document.getElementById('saveWorklogBtn');
   if (saveBtn) saveBtn.addEventListener('click', async () => saveManualWorklog(channel));
@@ -1043,9 +1155,11 @@ async function saveManualWorklog(channel) {
   const typeInput = document.getElementById('worklogTypeInput');
   const statusInput = document.getElementById('worklogStatusInput');
   const bodyInput = document.getElementById('worklogBodyInput');
-  const selectedDate = dateInput?.value || appState.workDate;
-  const article = findCatalogArticle(channel, articleInput?.value || '');
-  const body = bodyInput?.value?.trim() || '';
+  const draft = getWorklogDraft(channel);
+  const selectedDate = dateInput?.value || draft.date || appState.workDate;
+  const articleValue = articleInput?.value || draft.articleValue || '';
+  const article = findCatalogArticle(channel, articleValue);
+  const body = (bodyInput?.value ?? draft.body ?? '').trim();
   if (!article) {
     alert('Выбери артикул из полной матрицы — можно вставить sellerArticle или WB артикул.');
     return;
@@ -1057,8 +1171,8 @@ async function saveManualWorklog(channel) {
   const managerName = channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук';
   const actorName = appState.role === 'leader' ? LEADER_NAME : managerName;
   const actorRole = appState.role === 'leader' ? 'leader' : (channel === 'WB' ? 'manager_wb' : 'manager_ozon');
-  const status = statusInput?.value || 'saved';
-  const workType = typeInput?.value || 'other';
+  const status = statusInput?.value || draft.status || 'saved';
+  const workType = typeInput?.value || draft.type || 'other';
   await appState.storage.saveTaskComment({
     work_date: selectedDate,
     platform: channel,
@@ -1102,8 +1216,11 @@ async function saveManualWorklog(channel) {
   });
   if (selectedDate !== appState.workDate) {
     appState.workDate = selectedDate;
+    syncTaskCalendarAnchor(selectedDate);
+    syncWorklogDraftDates(selectedDate, { onlyIfPristine: true });
     if (els.workDateInput) els.workDateInput.value = selectedDate;
   }
+  clearWorklogDraft(channel, selectedDate);
   await refreshSharedState({ force: true });
   renderAll();
   alert('Строка работы добавлена в общий журнал. Предыдущие записи не затёрты.');
