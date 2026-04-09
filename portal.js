@@ -20,10 +20,14 @@ const appState = {
   },
   storage: null,
   taskStateMap: {},
+  taskStateRange: [],
+  taskStateRangeMap: {},
   sharedReports: [],
   taskComments: [],
   entityHistory: [],
-  selectedChartArticle: null
+  selectedChartArticle: null,
+  lastSharedRefreshAt: null,
+  sharedRefreshTimer: null
 };
 
 const ROLE_PRESETS = {
@@ -56,6 +60,19 @@ const VIEW_META = {
   }
 };
 
+const LEADER_NAME = (window.APP_CONFIG && window.APP_CONFIG.leaderName) || 'Вартан Борисович';
+
+const WORK_TYPE_OPTIONS = [
+  { value: 'seo', label: 'SEO' },
+  { value: 'content', label: 'Контент' },
+  { value: 'price', label: 'Цена / Маржа' },
+  { value: 'localization', label: 'Локализация' },
+  { value: 'ads', label: 'Реклама' },
+  { value: 'analytics', label: 'Аналитика' },
+  { value: 'supply', label: 'Поставка / остатки' },
+  { value: 'other', label: 'Другое' }
+];
+
 const els = {};
 
 document.addEventListener('DOMContentLoaded', initPortal);
@@ -68,6 +85,7 @@ async function initPortal() {
   enrichCrossReferences();
   await refreshSharedState();
   applyRolePreset(appState.role, false);
+  startSharedRefreshLoop();
   renderAll();
 }
 
@@ -78,7 +96,7 @@ function cacheElements() {
     'taskPackMeta','taskManagerCard','tasksTableWrap','taskStatusFilter','taskSearchInput','saveDailySummaryBtn',
     'supplyCards','supplyDeficitsTable','clusterNeedTable','supplyMatrixFrame','openSupplyFullLink',
     'chartArticleSelect','metricToggle','chartMeta','lineChart','marginCompareTable','controlDeviationTable','pnlCards','pnlFocusTable',
-    'reportSummary','reportsTable','exportReportsBtn','importReportsInput'
+    'reportSummary','reportsTable','exportReportsBtn','importReportsInput','refreshSharedBtn','syncStatusNote'
   ];
   ids.forEach((id) => { els[id] = document.getElementById(id); });
   els.views = Object.fromEntries([...document.querySelectorAll('.view')].map((node) => [node.id.replace('view-', ''), node]));
@@ -122,6 +140,23 @@ function bindEvents() {
   els.saveDailySummaryBtn.addEventListener('click', saveDailySummary);
   els.exportReportsBtn.addEventListener('click', exportReportsJson);
   els.importReportsInput.addEventListener('change', importReportsJson);
+  if (els.refreshSharedBtn) els.refreshSharedBtn.addEventListener('click', async () => {
+    if (els.syncStatusNote) els.syncStatusNote.textContent = 'Обновляю…';
+    await refreshSharedState({ force: true });
+    renderAll();
+  });
+  document.addEventListener('visibilitychange', async () => {
+    if (!document.hidden && appState.storage?.isShared()) {
+      await refreshSharedState({ force: true });
+      renderAll();
+    }
+  });
+  window.addEventListener('focus', async () => {
+    if (appState.storage?.isShared()) {
+      await refreshSharedState({ force: true });
+      renderAll();
+    }
+  });
   els.chartArticleSelect.addEventListener('change', (e) => {
     appState.selectedChartArticle = e.target.value;
     renderControlView();
@@ -196,22 +231,70 @@ function enrichCrossReferences() {
   });
 }
 
-async function refreshSharedState() {
-  const taskRows = await appState.storage.listTaskStates(appState.workDate);
-  appState.taskStateMap = Object.fromEntries((taskRows || []).map((item) => {
+function buildTaskStateMap(rows = []) {
+  return Object.fromEntries((rows || []).map((item) => {
     const article = item.seller_article || item.sellerArticle;
-    return [`${item.work_date}__${item.platform}__${article}`, {
-      status: item.status || 'todo',
-      comment: item.comment || item.manager_comment || ''
-    }];
+    return [`${item.work_date}__${item.platform}__${article}`, normalizeTaskStateRecord(item)];
   }));
-  appState.sharedReports = await appState.storage.listReports();
-  appState.taskComments = appState.storage.listTaskComments
-    ? await appState.storage.listTaskComments({ work_date: appState.workDate, limit: 300 })
-    : [];
-  appState.entityHistory = appState.storage.listHistory
-    ? await appState.storage.listHistory({ work_date: appState.workDate, limit: 300 })
-    : [];
+}
+
+function buildBusinessDateWindow(centerDate, before = 7, after = 7) {
+  const dates = [];
+  for (let i = before; i > 0; i -= 1) dates.push(shiftBusinessDate(centerDate, -i));
+  dates.push(centerDate);
+  for (let i = 1; i <= after; i += 1) dates.push(shiftBusinessDate(centerDate, i));
+  return dates;
+}
+
+function formatTimeOnly(dateLike) {
+  if (!dateLike) return '—';
+  const date = new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return '—';
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+
+function startSharedRefreshLoop() {
+  if (!appState.storage?.isShared()) return;
+  if (appState.sharedRefreshTimer) clearInterval(appState.sharedRefreshTimer);
+  appState.sharedRefreshTimer = setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      await refreshSharedState({ force: true });
+      if (appState.view === 'reports') renderReportsView();
+      else renderViewState();
+    } catch (error) {
+      console.error(error);
+      if (els.syncStatusNote) els.syncStatusNote.textContent = 'Ошибка синхр.';
+    }
+  }, 12000);
+}
+
+async function refreshSharedState(options = {}) {
+  const calendarWindow = buildBusinessDateWindow(appState.workDate, 7, 7);
+  const rangeStart = calendarWindow[0];
+  const rangeEnd = calendarWindow[calendarWindow.length - 1];
+  if (els.syncStatusNote) els.syncStatusNote.textContent = appState.storage?.isShared() ? 'Синхронизация…' : 'Локальный режим';
+  const [taskRows, taskRangeRows, reports, comments, history] = await Promise.all([
+    appState.storage.listTaskStates(appState.workDate),
+    appState.storage.listTaskStatesRange ? appState.storage.listTaskStatesRange(rangeStart, rangeEnd) : appState.storage.listTaskStates(appState.workDate),
+    appState.storage.listReports(),
+    appState.storage.listTaskComments
+      ? appState.storage.listTaskComments({ work_date: appState.workDate, limit: 800 })
+      : Promise.resolve([]),
+    appState.storage.listHistory
+      ? appState.storage.listHistory({ work_date: appState.workDate, limit: 800 })
+      : Promise.resolve([])
+  ]);
+  appState.taskStateMap = buildTaskStateMap(taskRows || []);
+  appState.taskStateRange = taskRangeRows || [];
+  appState.taskStateRangeMap = buildTaskStateMap(taskRangeRows || []);
+  appState.sharedReports = reports || [];
+  appState.taskComments = comments || [];
+  appState.entityHistory = history || [];
+  appState.lastSharedRefreshAt = new Date().toISOString();
+  if (els.syncStatusNote) els.syncStatusNote.textContent = appState.storage?.isShared()
+    ? `Синхр.: ${formatTimeOnly(appState.lastSharedRefreshAt)}`
+    : 'Локальный режим';
 }
 
 function applyRolePreset(role, rerender = true) {
@@ -228,6 +311,7 @@ function renderAll() {
   els.workDateInput.value = appState.workDate;
   els.storageModeLabel.textContent = descriptor.label;
   els.currentDateLabel.textContent = formatDate(appState.workDate);
+  if (els.syncStatusNote) els.syncStatusNote.textContent = descriptor.shared && appState.lastSharedRefreshAt ? `Синхр.: ${formatTimeOnly(appState.lastSharedRefreshAt)}` : (descriptor.shared ? 'Жду данные…' : 'Локальный режим');
   els.syncBanner.classList.toggle('shared', !!descriptor.shared);
   els.syncBanner.innerHTML = descriptor.shared
     ? `<strong>Общий журнал подключён.</strong> ${escapeHtml(descriptor.note)}`
@@ -295,15 +379,15 @@ function getBusinessDayOffset(anchorStr, dateStr) {
   return count;
 }
 
-function getPackForManager(managerName) {
+function getPackForManager(managerName, dateStr = appState.workDate) {
   const manager = getManagers()[managerName];
   if (!manager || !Array.isArray(manager.articles)) return { managerName, manager, packArticles: [], packNumber: 1, totalPacks: 1 };
   const packSize = Number(manager.packSize || appState.data.plan.packSizeDefault || 20);
   const totalPacks = Math.max(1, Math.ceil(manager.articles.length / packSize));
-  const offset = getBusinessDayOffset(appState.data.plan.cycleAnchorDate, appState.workDate);
+  const offset = getBusinessDayOffset(appState.data.plan.cycleAnchorDate, dateStr);
   const packNumber = ((offset % totalPacks) + totalPacks) % totalPacks + 1;
   const packArticles = manager.articles.filter((article) => Number(article.packNumber || 1) === packNumber);
-  return { managerName, manager, packArticles, packNumber, totalPacks };
+  return { managerName, manager, packArticles, packNumber, totalPacks, workDate: dateStr };
 }
 
 function getTaskRowsForCurrentSelection() {
@@ -381,12 +465,119 @@ function getRowFactRevenue(article) {
   return Number(article.metrics?.factMoneyDay || 0);
 }
 
-function getTaskStorageKey(article) {
-  return `${appState.workDate}__${article.channel}__${article.sellerArticle}`;
+function getTaskStorageKey(article, workDate = appState.workDate) {
+  return `${workDate}__${article.channel}__${article.sellerArticle}`;
+}
+
+function extractDueDate(value) {
+  if (!value) return appState.workDate || '';
+  const raw = String(value);
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : raw;
+}
+
+function normalizeTaskStateRecord(raw = {}, article = null) {
+  const managerName = raw.manager_name || raw.assignee_name || (article ? (article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук') : '');
+  const leaderDefault = article?.focusAction || article?.focusComment || article?.action || raw.focus_comment || '';
+  const dueSource = raw.due_at || raw.dueAt || raw.due_date || raw.dueDate || appState.workDate || '';
+  return {
+    status: raw.status || 'todo',
+    comment: raw.comment || raw.manager_comment || raw.managerComment || '',
+    manager_comment: raw.manager_comment || raw.managerComment || raw.comment || '',
+    leader_comment: raw.leader_comment || raw.leaderComment || leaderDefault,
+    due_at: raw.due_at || raw.dueAt || '',
+    due_date: extractDueDate(dueSource),
+    updated_at: raw.updated_at || raw.updatedAt || '',
+    updated_by: raw.updated_by || raw.updatedBy || '',
+    assignee_name: raw.assignee_name || raw.assigneeName || managerName || '',
+    manager_name: raw.manager_name || raw.managerName || managerName || '',
+    wb_article: raw.wb_article || raw.wbArticle || article?.wbArticle || '',
+    ozon_article: raw.ozon_article || raw.ozonArticle || article?.ozonProductId || article?.ozonArticle || ''
+  };
+}
+
+function getEmptyTaskState(article = null) {
+  return normalizeTaskStateRecord({
+    status: 'todo',
+    comment: '',
+    manager_comment: '',
+    leader_comment: article?.focusAction || article?.focusComment || article?.action || '',
+    due_date: appState.workDate,
+    due_at: appState.workDate ? `${appState.workDate}T18:00:00` : '',
+    updated_at: '',
+    updated_by: '',
+    assignee_name: article ? (article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук') : '',
+    manager_name: article ? (article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук') : ''
+  }, article);
 }
 
 function getTaskState(article) {
-  return appState.taskStateMap[getTaskStorageKey(article)] || { status: 'todo', comment: '' };
+  return normalizeTaskStateRecord(appState.taskStateMap[getTaskStorageKey(article)] || getEmptyTaskState(article), article);
+}
+
+function shiftDate(dateStr, deltaDays) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftBusinessDate(dateStr, deltaDays) {
+  let current = dateStr;
+  let left = Math.abs(deltaDays);
+  const step = deltaDays >= 0 ? 1 : -1;
+  while (left > 0) {
+    current = shiftDate(current, step);
+    const day = new Date(`${current}T00:00:00`).getDay();
+    if (day !== 0 && day !== 6) left -= 1;
+  }
+  return current;
+}
+
+async function setWorkDateAndRefresh(dateStr) {
+  appState.workDate = dateStr;
+  els.workDateInput.value = dateStr;
+  await refreshSharedState();
+  renderAll();
+}
+
+async function fetchTaskStateMapForDate(workDate) {
+  const rows = await appState.storage.listTaskStates(workDate);
+  return buildTaskStateMap(rows || []);
+}
+
+function buildTaskStatePayload(article, patch = {}, previousState = getTaskState(article)) {
+  const managerName = article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук';
+  const isLeader = appState.role === 'leader';
+  const leaderComment = patch.leaderComment !== undefined ? patch.leaderComment : (previousState.leader_comment || article.focusAction || article.focusComment || article.action || '');
+  const managerComment = patch.managerComment !== undefined ? patch.managerComment : (previousState.manager_comment || previousState.comment || '');
+  const dueDate = patch.dueDate !== undefined ? patch.dueDate : (previousState.due_date || appState.workDate);
+  const dueAt = dueDate ? `${dueDate}T18:00:00` : null;
+  return {
+    work_date: appState.workDate,
+    platform: article.channel,
+    seller_article: article.sellerArticle,
+    manager_name: managerName,
+    assignee_name: managerName,
+    wb_article: article.wbArticle || '',
+    ozon_article: article.ozonProductId || article.ozonArticle || '',
+    item_name: article.name || '',
+    status: patch.status || previousState.status || 'todo',
+    comment: managerComment || leaderComment || '',
+    manager_comment: managerComment || '',
+    leader_comment: leaderComment || '',
+    focus_comment: article.focusAction || article.focusComment || article.action || article.comment || '',
+    priority: article.priority || '',
+    due_at: dueAt,
+    updated_by: isLeader ? LEADER_NAME : managerName,
+    updated_at: new Date().toISOString(),
+    metadata: {
+      channel: article.channel,
+      category: article.category || '',
+      focusSignal: article.focusSignal || article.signal || '',
+      planningDate: appState.workDate,
+      editorRole: appState.role
+    }
+  };
 }
 
 function renderArticleIdentity(row, options = {}) {
@@ -401,48 +592,52 @@ function renderArticleIdentity(row, options = {}) {
   return lines.join('');
 }
 
-async function saveTaskRow(article, status, comment) {
+async function saveTaskRow(article, patch = {}) {
   const previousState = getTaskState(article);
   const managerName = article.channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук';
-  const payload = {
-    work_date: appState.workDate,
-    platform: article.channel,
-    seller_article: article.sellerArticle,
-    manager_name: managerName,
-    assignee_name: managerName,
-    wb_article: article.wbArticle || '',
-    ozon_article: article.ozonProductId || '',
-    item_name: article.name || '',
-    status,
-    comment,
-    manager_comment: comment,
-    focus_comment: article.focusAction || article.focusComment || article.action || article.comment || '',
-    priority: article.priority || '',
-    updated_by: managerName,
-    updated_at: new Date().toISOString(),
-    metadata: {
-      channel: article.channel,
-      category: article.category || '',
-      focusSignal: article.focusSignal || article.signal || ''
-    }
-  };
-  await appState.storage.saveTaskState(payload);
-  appState.taskStateMap[getTaskStorageKey(article)] = { status, comment };
+  const actorName = appState.role === 'leader' ? LEADER_NAME : managerName;
+  const actorRole = appState.role === 'leader' ? 'leader' : (article.channel === 'WB' ? 'manager_wb' : 'manager_ozon');
+  const payload = buildTaskStatePayload(article, patch, previousState);
+  const savedRow = await appState.storage.saveTaskState(payload);
+  appState.taskStateMap[getTaskStorageKey(article)] = normalizeTaskStateRecord(savedRow || payload, article);
 
-  if (comment && comment !== (previousState.comment || '') && appState.storage.saveTaskComment) {
+  const leaderCommentChanged = appState.role === 'leader' && payload.leader_comment && payload.leader_comment !== (previousState.leader_comment || '');
+  const managerCommentChanged = appState.role !== 'leader' && payload.manager_comment && payload.manager_comment !== (previousState.manager_comment || previousState.comment || '');
+
+  if (leaderCommentChanged && appState.storage.saveTaskComment) {
     await appState.storage.saveTaskComment({
       work_date: appState.workDate,
       platform: article.channel,
       seller_article: article.sellerArticle,
       wb_article: article.wbArticle || '',
-      ozon_article: article.ozonProductId || '',
+      ozon_article: article.ozonProductId || article.ozonArticle || '',
       manager_name: managerName,
-      author_name: managerName,
-      author_role: article.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
-      comment_type: 'manager_update',
-      body: comment,
+      author_name: actorName,
+      author_role: actorRole,
+      comment_type: 'leader_plan',
+      body: payload.leader_comment,
       meta: {
-        status,
+        dueDate: payload.due_at,
+        focusSignal: article.focusSignal || article.signal || '',
+        focusAction: article.focusAction || article.focusComment || article.action || ''
+      }
+    });
+  }
+
+  if (managerCommentChanged && appState.storage.saveTaskComment) {
+    await appState.storage.saveTaskComment({
+      work_date: appState.workDate,
+      platform: article.channel,
+      seller_article: article.sellerArticle,
+      wb_article: article.wbArticle || '',
+      ozon_article: article.ozonProductId || article.ozonArticle || '',
+      manager_name: managerName,
+      author_name: actorName,
+      author_role: actorRole,
+      comment_type: 'manager_update',
+      body: payload.manager_comment,
+      meta: {
+        status: payload.status,
         focusSignal: article.focusSignal || article.signal || '',
         focusAction: article.focusAction || article.focusComment || article.action || ''
       }
@@ -452,26 +647,71 @@ async function saveTaskRow(article, status, comment) {
   const report = {
     work_date: appState.workDate,
     created_at: new Date().toISOString(),
-    author_name: managerName,
-    author_role: article.channel === 'WB' ? 'manager_wb' : 'manager_ozon',
+    author_name: actorName,
+    author_role: actorRole,
     platform: article.channel,
     contour: 'tasks',
-    title: `${article.channel} · ${article.sellerArticle}`,
-    route: `${article.channel} · задачи`,
-    status,
+    title: appState.role === 'leader' ? `${article.channel} · план ${article.sellerArticle}` : `${article.channel} · ${article.sellerArticle}`,
+    route: appState.role === 'leader' ? `${article.channel} · задачи · план` : `${article.channel} · задачи`,
+    status: payload.status || 'saved',
     items_count: 1,
-    note: comment || 'Изменён статус по артикулу',
+    note: appState.role === 'leader'
+      ? (payload.leader_comment || `План на ${formatDate(appState.workDate)} обновлён`)
+      : (payload.manager_comment || 'Изменён статус по артикулу'),
     storage_label: appState.storage.getDescriptor().label,
     payload: {
       sellerArticle: article.sellerArticle,
       wbArticle: article.wbArticle || '',
-      ozonArticle: article.ozonProductId || ''
+      ozonArticle: article.ozonProductId || article.ozonArticle || '',
+      dueDate: payload.due_at || ''
     }
   };
   await appState.storage.saveReport(report);
   await refreshSharedState();
   renderDashboardView();
   renderReportsView();
+}
+
+async function planTaskRowsForDate(copyFromDate = null) {
+  const taskInfo = getTaskRowsForCurrentSelection();
+  if (!taskInfo.rows.length) return;
+  const sourceMap = copyFromDate ? await fetchTaskStateMapForDate(copyFromDate) : {};
+  const tasks = taskInfo.rows.map(async (article) => {
+    const currentState = getTaskState(article);
+    const sourceState = copyFromDate ? (sourceMap[`${copyFromDate}__${article.channel}__${article.sellerArticle}`] || {}) : {};
+    const payload = buildTaskStatePayload(article, {
+      status: currentState.status && currentState.status !== 'todo' ? currentState.status : 'todo',
+      managerComment: currentState.manager_comment || '',
+      leaderComment: currentState.leader_comment || sourceState.leader_comment || article.focusAction || article.focusComment || article.action || '',
+      dueDate: currentState.due_date || appState.workDate
+    }, currentState);
+    return appState.storage.saveTaskState(payload);
+  });
+  await Promise.all(tasks);
+  await appState.storage.saveReport({
+    work_date: appState.workDate,
+    created_at: new Date().toISOString(),
+    author_name: LEADER_NAME,
+    author_role: 'leader',
+    platform: taskInfo.channel,
+    contour: 'tasks',
+    title: `${taskInfo.channel} · план на дату`,
+    route: `${taskInfo.channel} · задачи · план`,
+    status: 'saved',
+    items_count: taskInfo.rows.length,
+    note: copyFromDate
+      ? `План задач на ${formatDate(appState.workDate)} скопирован с ${formatDate(copyFromDate)}. SKU: ${taskInfo.rows.length}.`
+      : `План задач на ${formatDate(appState.workDate)} зафиксирован. SKU: ${taskInfo.rows.length}.`,
+    storage_label: appState.storage.getDescriptor().label,
+    payload: {
+      sourceDate: copyFromDate || null,
+      assignee: taskInfo.managerName,
+      platform: taskInfo.channel
+    }
+  });
+  await refreshSharedState();
+  renderAll();
+  alert(copyFromDate ? 'План на выбранную дату скопирован.' : 'Задачи на выбранную дату зафиксированы.');
 }
 
 function upsertLocalReport(entry) {
@@ -513,6 +753,360 @@ function countTaskStatuses(rows) {
     acc[state.status] = (acc[state.status] || 0) + 1;
     return acc;
   }, { todo: 0, in_progress: 0, done: 0, need_help: 0 });
+}
+
+function getTaskStateForDate(article, workDate, stateMap = appState.taskStateRangeMap) {
+  const key = `${workDate}__${article.channel}__${article.sellerArticle}`;
+  return normalizeTaskStateRecord(stateMap[key] || getEmptyTaskState(article), article);
+}
+
+function formatCalendarDateLabel(value) {
+  if (!value) return '—';
+  const date = new Date(`${value}T00:00:00`);
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', weekday: 'short' }).format(date);
+}
+
+function getTaskCalendarData(channel) {
+  const managerEntry = getManagerByChannel(channel);
+  if (!managerEntry) return [];
+  const [managerName] = managerEntry;
+  const dates = buildBusinessDateWindow(appState.workDate, 7, 7);
+  const today = new Date().toISOString().slice(0, 10);
+  return dates.map((date) => {
+    const packInfo = getPackForManager(managerName, date);
+    const rows = packInfo.packArticles || [];
+    let existing = 0;
+    let done = 0;
+    let inProgress = 0;
+    let needHelp = 0;
+    let todo = 0;
+    rows.forEach((article) => {
+      const key = `${date}__${channel}__${article.sellerArticle}`;
+      if (appState.taskStateRangeMap[key]) existing += 1;
+      const state = getTaskStateForDate(article, date);
+      if (state.status === 'done') done += 1;
+      else if (state.status === 'in_progress') inProgress += 1;
+      else if (state.status === 'need_help') needHelp += 1;
+      else todo += 1;
+    });
+    const total = rows.length;
+    const hasPlan = existing > 0;
+    const overdue = date < today && hasPlan ? Math.max(0, total - done) : 0;
+    let stateClass = 'empty';
+    let stateLabel = date < today ? 'Нет плана' : 'Не запланировано';
+    if (hasPlan && done === total && total > 0) {
+      stateClass = 'done';
+      stateLabel = 'Готово';
+    } else if (needHelp > 0) {
+      stateClass = 'need_help';
+      stateLabel = 'Нужна помощь';
+    } else if (date < today && hasPlan && done < total) {
+      stateClass = 'overdue';
+      stateLabel = 'Есть хвосты';
+    } else if (hasPlan && (inProgress > 0 || done > 0)) {
+      stateClass = 'in_progress';
+      stateLabel = 'В работе';
+    } else if (hasPlan) {
+      stateClass = 'planned';
+      stateLabel = 'План стоит';
+    }
+    const progressPct = total ? Math.round((done / total) * 100) : 0;
+    return {
+      date,
+      label: formatCalendarDateLabel(date),
+      total,
+      done,
+      inProgress,
+      needHelp,
+      todo,
+      hasPlan,
+      overdue,
+      progressPct,
+      stateClass,
+      stateLabel,
+      packNumber: packInfo.packNumber,
+      totalPacks: packInfo.totalPacks,
+      isSelected: date === appState.workDate,
+      isToday: date === today
+    };
+  });
+}
+
+function renderTaskCalendar(calendarData) {
+  return `
+    <div class="task-calendar-block">
+      <div class="task-calendar-head">
+        <div>
+          <strong>Календарь выполнения по датам</strong>
+          <p class="help-text">Вартан видит прошлые, текущие и будущие даты: где план поставлен, где идёт работа, а где остались хвосты.</p>
+        </div>
+        <div class="task-calendar-legend">
+          <span class="calendar-legend done">Готово</span>
+          <span class="calendar-legend in_progress">В работе</span>
+          <span class="calendar-legend planned">План</span>
+          <span class="calendar-legend overdue">Хвосты</span>
+          <span class="calendar-legend need_help">Нужна помощь</span>
+        </div>
+      </div>
+      <div class="task-calendar-grid">
+        ${calendarData.map((day) => `
+          <button class="task-calendar-card ${day.stateClass} ${day.isSelected ? 'selected' : ''}" type="button" data-calendar-date="${day.date}">
+            <div class="task-calendar-date-row">
+              <span class="task-calendar-date">${escapeHtml(day.label)}</span>
+              ${day.isToday ? '<span class="pill-note">сегодня</span>' : ''}
+            </div>
+            <strong>${escapeHtml(day.stateLabel)}</strong>
+            <div class="task-calendar-meta">Пакет ${day.packNumber}/${day.totalPacks} · SKU ${day.total}</div>
+            <div class="task-calendar-counts">
+              <span>Г ${day.done}</span>
+              <span>В ${day.inProgress}</span>
+              <span>! ${day.needHelp}</span>
+              <span>Х ${day.overdue}</span>
+            </div>
+            <div class="task-calendar-progress"><span style="width:${day.progressPct}%"></span></div>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function getArticleCatalog(channel) {
+  const map = new Map();
+  const addArticle = (raw = {}) => {
+    const sellerArticle = String(raw.sellerArticle || raw.seller_article || '').trim();
+    if (!sellerArticle) return;
+    const current = map.get(sellerArticle) || {};
+    map.set(sellerArticle, {
+      sellerArticle,
+      channel,
+      name: raw.name || raw.item_name || current.name || '',
+      category: raw.category || current.category || '',
+      wbArticle: String(raw.wbArticle || raw.wb_article || raw.platformArticle || current.wbArticle || '').replace(/\.0$/, ''),
+      ozonArticle: String(raw.ozonArticle || raw.ozon_article || raw.ozonProductId || current.ozonArticle || '').replace(/\.0$/, ''),
+      action: raw.action || raw.focusAction || raw.focusComment || current.action || '',
+      priorityLabel: raw.priorityLabel || current.priorityLabel || '',
+      photoUrl: raw.photoUrl || current.photoUrl || ''
+    });
+  };
+  const managerEntry = getManagerByChannel(channel);
+  if (managerEntry) (managerEntry[1]?.articles || []).forEach(addArticle);
+  (appState.data.nina?.platforms?.[channel]?.rows || []).forEach(addArticle);
+  return [...map.values()].sort((a, b) => {
+    const wbA = String(a.wbArticle || '').padStart(20, '0');
+    const wbB = String(b.wbArticle || '').padStart(20, '0');
+    if (wbA !== wbB) return wbA.localeCompare(wbB, 'ru');
+    return String(a.sellerArticle || '').localeCompare(String(b.sellerArticle || ''), 'ru');
+  });
+}
+
+function findCatalogArticle(channel, rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  const digits = value.replace(/\D+/g, '');
+  return getArticleCatalog(channel).find((item) => {
+    const seller = String(item.sellerArticle || '').trim().toLowerCase();
+    const wb = String(item.wbArticle || '').replace(/\D+/g, '');
+    const ozon = String(item.ozonArticle || '').replace(/\D+/g, '');
+    return seller === normalized || (digits && wb === digits) || (digits && ozon === digits);
+  }) || null;
+}
+
+function getWorklogEntries(channel = null) {
+  return [...(appState.taskComments || [])]
+    .filter((item) => item.comment_type === 'manager_worklog' && (!channel || item.platform === channel))
+    .sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
+}
+
+function commentTypeLabel(type) {
+  const map = {
+    leader_plan: 'План руководителя',
+    manager_update: 'Обновление менеджера',
+    manager_worklog: 'Строка работы',
+    comment: 'Комментарий'
+  };
+  return map[type] || type || 'Комментарий';
+}
+
+function workTypeLabel(type) {
+  const found = WORK_TYPE_OPTIONS.find((item) => item.value === type);
+  return found ? found.label : (type || 'Другое');
+}
+
+function renderWorklogArticleHint(article) {
+  if (!article) {
+    return '<div class="help-text">Выбери артикул из полной матрицы WB / Ozon. Новая запись не перезатрёт прошлую — каждая строка пишется отдельно в Supabase и видна Вартану в общей сводной.</div>';
+  }
+  return `
+    <div class="worklog-hint-card">
+      <strong>WB ${escapeHtml(String(article.wbArticle || '—'))}</strong>
+      <span>${escapeHtml(article.sellerArticle || '—')}</span>
+      <span>${escapeHtml(article.name || '—')}</span>
+      <span>${escapeHtml(article.category || '')}</span>
+    </div>
+  `;
+}
+
+function renderTaskWorklogPanel(channel) {
+  const entries = getWorklogEntries(channel).slice(0, 20);
+  const table = renderSimpleTable([
+    { key: 'time', label: 'Когда' },
+    { key: 'article', label: 'Артикул' },
+    { key: 'type', label: 'Тип работы' },
+    { key: 'status', label: 'Статус' },
+    { key: 'body', label: 'Что сделали' }
+  ], entries.map((item) => ({
+    time: formatDateTime(item.created_at || item.createdAt),
+    article: `<strong>${escapeHtml(item.wb_article || item.wbArticle || '—')}</strong><span class="muted">${escapeHtml(item.seller_article || item.sellerArticle || '')}</span>`,
+    type: escapeHtml(workTypeLabel(item.meta?.workType || item.meta?.work_type || 'other')),
+    status: `<span class="badge ${normalizeStatus(item.meta?.status || 'saved')}">${statusLabel(item.meta?.status || 'saved')}</span>`,
+    body: escapeHtml(item.body || '')
+  })));
+  const catalog = getArticleCatalog(channel);
+  const datalistId = `worklog-article-list-${channel}`;
+  return `
+    <div class="worklog-panel">
+      <div class="worklog-head">
+        <div>
+          <strong>Доп. строка работы по артикулу</strong>
+          <p class="help-text">Если менеджер работал не по фиксированным 20 SKU, он выбирает артикул из полной матрицы, ставит дату и пишет, что сделал. Это append-only журнал: новая запись не стирает старую.</p>
+        </div>
+        <div class="pill-note">Дата записи по умолчанию = рабочая дата сверху, но её можно поменять прямо здесь.</div>
+      </div>
+      <div class="worklog-grid">
+        <label class="worklog-field">
+          <span>Дата работы</span>
+          <input class="inline-input" id="worklogDateInput" type="date" value="${escapeAttr(appState.workDate)}" />
+        </label>
+        <label class="worklog-field worklog-field-wide">
+          <span>Артикул из полной матрицы</span>
+          <input class="inline-input" id="worklogArticleInput" list="${datalistId}" placeholder="WB арт. или sellerArticle" />
+          <datalist id="${datalistId}">
+            ${catalog.map((item) => `<option value="${escapeAttr(item.sellerArticle)}" label="WB ${escapeAttr(String(item.wbArticle || '—'))} · ${escapeAttr(item.name || item.category || '')}"></option>`).join('')}
+          </datalist>
+        </label>
+        <label class="worklog-field">
+          <span>Тип работы</span>
+          <select class="inline-select" id="worklogTypeInput">
+            ${WORK_TYPE_OPTIONS.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="worklog-field">
+          <span>Статус</span>
+          <select class="inline-select" id="worklogStatusInput">
+            <option value="in_progress">В работе</option>
+            <option value="done">Готово</option>
+            <option value="need_help">Нужна помощь</option>
+            <option value="saved">Сохранено</option>
+          </select>
+        </label>
+      </div>
+      <div id="worklogArticleHint" class="worklog-hint">${renderWorklogArticleHint(null)}</div>
+      <label class="worklog-field" style="margin-top:12px;">
+        <span>Что сделали / на что обратить внимание</span>
+        <textarea class="inline-input inline-textarea" id="worklogBodyInput" placeholder="Например: проверила карточку, отключила рекламу, обновила цену, проверила SEO, внесла изменения по контенту..."></textarea>
+      </label>
+      <div class="worklog-actions">
+        <button class="btn btn-primary" id="saveWorklogBtn" type="button">Добавить строку в общую сводную</button>
+        <span class="help-text">Строка сохранится в Supabase, появится внизу в журнале и не перетрёт предыдущие записи по этому артикулу.</span>
+      </div>
+      <div class="worklog-journal">
+        <div class="worklog-journal-head">
+          <strong>Уже сохранено за ${escapeHtml(formatDate(appState.workDate))}</strong>
+          <span class="pill-note">${entries.length} записей по ${escapeHtml(channel)}</span>
+        </div>
+        <div class="simple-table-wrap">${table}</div>
+      </div>
+    </div>
+  `;
+}
+
+function bindTaskWorklogPanel(channel) {
+  const articleInput = document.getElementById('worklogArticleInput');
+  const hint = document.getElementById('worklogArticleHint');
+  if (articleInput && hint) {
+    const refreshHint = () => {
+      hint.innerHTML = renderWorklogArticleHint(findCatalogArticle(channel, articleInput.value));
+    };
+    articleInput.addEventListener('input', refreshHint);
+    articleInput.addEventListener('change', refreshHint);
+    refreshHint();
+  }
+  const saveBtn = document.getElementById('saveWorklogBtn');
+  if (saveBtn) saveBtn.addEventListener('click', async () => saveManualWorklog(channel));
+}
+
+async function saveManualWorklog(channel) {
+  const dateInput = document.getElementById('worklogDateInput');
+  const articleInput = document.getElementById('worklogArticleInput');
+  const typeInput = document.getElementById('worklogTypeInput');
+  const statusInput = document.getElementById('worklogStatusInput');
+  const bodyInput = document.getElementById('worklogBodyInput');
+  const selectedDate = dateInput?.value || appState.workDate;
+  const article = findCatalogArticle(channel, articleInput?.value || '');
+  const body = bodyInput?.value?.trim() || '';
+  if (!article) {
+    alert('Выбери артикул из полной матрицы — можно вставить sellerArticle или WB артикул.');
+    return;
+  }
+  if (!body) {
+    alert('Добавь комментарий: что именно сделали по артикулу.');
+    return;
+  }
+  const managerName = channel === 'WB' ? 'Анастасия' : 'Ирина Паламарук';
+  const actorName = appState.role === 'leader' ? LEADER_NAME : managerName;
+  const actorRole = appState.role === 'leader' ? 'leader' : (channel === 'WB' ? 'manager_wb' : 'manager_ozon');
+  const status = statusInput?.value || 'saved';
+  const workType = typeInput?.value || 'other';
+  await appState.storage.saveTaskComment({
+    work_date: selectedDate,
+    platform: channel,
+    seller_article: article.sellerArticle,
+    wb_article: article.wbArticle || '',
+    ozon_article: article.ozonArticle || '',
+    manager_name: managerName,
+    author_name: actorName,
+    author_role: actorRole,
+    comment_type: 'manager_worklog',
+    body,
+    meta: {
+      workType,
+      status,
+      channel,
+      category: article.category || '',
+      itemName: article.name || '',
+      source: 'manual_matrix_entry',
+      selectedDate
+    }
+  });
+  await appState.storage.saveReport({
+    work_date: selectedDate,
+    created_at: new Date().toISOString(),
+    author_name: actorName,
+    author_role: actorRole,
+    platform: channel,
+    contour: 'tasks',
+    title: `${channel} · доп. запись ${article.sellerArticle}`,
+    route: `${channel} · задачи · рабочий журнал`,
+    status,
+    items_count: 1,
+    note: `${workTypeLabel(workType)} · ${body}`,
+    storage_label: appState.storage.getDescriptor().label,
+    payload: {
+      sellerArticle: article.sellerArticle,
+      wbArticle: article.wbArticle || '',
+      ozonArticle: article.ozonArticle || '',
+      manual: true
+    }
+  });
+  if (selectedDate !== appState.workDate) {
+    appState.workDate = selectedDate;
+    if (els.workDateInput) els.workDateInput.value = selectedDate;
+  }
+  await refreshSharedState({ force: true });
+  renderAll();
+  alert('Строка работы добавлена в общий журнал. Предыдущие записи не затёрты.');
 }
 
 function getAllReports() {
@@ -632,14 +1226,30 @@ function renderTasksView() {
     return matchesStatus && matchesQuery;
   });
   const statusCounts = countTaskStatuses(taskInfo.rows);
-  els.taskPackMeta.textContent = `Зафиксирован пакет ${taskInfo.packNumber}/${taskInfo.totalPacks} на ${formatDate(appState.workDate)}. Всего в пакете: ${taskInfo.rows.length}.`;
+  const isLeader = appState.role === 'leader';
+  const calendarData = getTaskCalendarData(taskInfo.channel);
+  els.taskPackMeta.textContent = `Дата задач: ${formatDate(appState.workDate)}. В срезе ${taskInfo.rows.length} SKU. Ниже можно не только вести фиксированные задачи, но и добавить отдельную строку работы по любому артикулу из полной матрицы.`;
   els.taskManagerCard.innerHTML = `
-    <h3>${escapeHtml(taskInfo.managerName || '—')} · ${escapeHtml(taskInfo.channel)}</h3>
-    <p>${escapeHtml(taskInfo.manager?.responsibility || '')}</p>
-    <p class="help-text">Статусы: не начато — ${statusCounts.todo}, в работе — ${statusCounts.in_progress}, готово — ${statusCounts.done}, нужна помощь — ${statusCounts.need_help}.</p>
+    <div class="manager-card-grid">
+      <div>
+        <h3>${escapeHtml(taskInfo.managerName || '—')} · ${escapeHtml(taskInfo.channel)}</h3>
+        <p>${escapeHtml(taskInfo.manager?.responsibility || '')}</p>
+        <p class="help-text">Статусы на ${formatDate(appState.workDate)}: не начато — ${statusCounts.todo}, в работе — ${statusCounts.in_progress}, готово — ${statusCounts.done}, нужна помощь — ${statusCounts.need_help}.</p>
+      </div>
+      <div class="planner-toolbar">
+        <button class="btn btn-ghost" id="taskPrevDateBtn" type="button">← Пред. раб. день</button>
+        <button class="btn btn-ghost" id="taskNextDateBtn" type="button">След. раб. день →</button>
+        ${isLeader ? `
+          <button class="btn btn-ghost" id="taskCopyPrevBtn" type="button">Скопировать план с пред. даты</button>
+          <button class="btn btn-primary" id="taskPlanDateBtn" type="button">Зафиксировать задачи на дату</button>
+        ` : `<span class="planner-note">Руководитель задаёт комментарий и срок на любую дату, менеджер заполняет статус и свой комментарий. Доп. строки работы не перезаписывают старые записи.</span>`}
+      </div>
+    </div>
+    ${renderTaskCalendar(calendarData)}
+    ${renderTaskWorklogPanel(taskInfo.channel)}
   `;
   els.tasksTableWrap.innerHTML = `
-    <table class="tasks-table">
+    <table class="tasks-table tasks-table-wide">
       <thead>
         <tr>
           <th>Артикул / Ozon</th>
@@ -648,10 +1258,11 @@ function renderTasksView() {
           <th>Приоритет</th>
           <th>План/д</th>
           <th>Факт/д</th>
-          <th>Маржа/д</th>
-          <th>Что сделать</th>
           <th>Статус</th>
-          <th>Комментарий</th>
+          <th>Срок</th>
+          <th>Комментарий руководителя</th>
+          <th>Комментарий менеджера</th>
+          <th>Обновлено</th>
           <th></th>
         </tr>
       </thead>
@@ -660,14 +1271,30 @@ function renderTasksView() {
       </tbody>
     </table>
   `;
+
+  const prevBtn = document.getElementById('taskPrevDateBtn');
+  if (prevBtn) prevBtn.addEventListener('click', async () => setWorkDateAndRefresh(shiftBusinessDate(appState.workDate, -1)));
+  const nextBtn = document.getElementById('taskNextDateBtn');
+  if (nextBtn) nextBtn.addEventListener('click', async () => setWorkDateAndRefresh(shiftBusinessDate(appState.workDate, 1)));
+  const copyPrevBtn = document.getElementById('taskCopyPrevBtn');
+  if (copyPrevBtn) copyPrevBtn.addEventListener('click', async () => planTaskRowsForDate(shiftBusinessDate(appState.workDate, -1)));
+  const planBtn = document.getElementById('taskPlanDateBtn');
+  if (planBtn) planBtn.addEventListener('click', async () => planTaskRowsForDate());
+  document.querySelectorAll('[data-calendar-date]').forEach((btn) => {
+    btn.addEventListener('click', async () => setWorkDateAndRefresh(btn.dataset.calendarDate));
+  });
+  bindTaskWorklogPanel(taskInfo.channel);
+
   els.tasksTableWrap.querySelectorAll('.save-row-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const article = taskInfo.rows.find((item) => item.sellerArticle === btn.dataset.article);
       if (!article) return;
       const tr = btn.closest('tr');
       const status = tr.querySelector('.task-status-input').value;
-      const comment = tr.querySelector('.task-comment-input').value.trim();
-      await saveTaskRow(article, status, comment);
+      const dueDate = tr.querySelector('.task-due-input')?.value || appState.workDate;
+      const leaderComment = tr.querySelector('.task-leader-input')?.value?.trim() || '';
+      const managerComment = tr.querySelector('.task-manager-input')?.value?.trim() || '';
+      await saveTaskRow(article, { status, dueDate, leaderComment, managerComment });
       btn.textContent = 'Сохранено';
       setTimeout(() => { btn.textContent = 'Сохранить'; renderTasksView(); }, 700);
     });
@@ -676,6 +1303,7 @@ function renderTasksView() {
 
 function renderTaskRow(row) {
   const state = getTaskState(row);
+  const isLeader = appState.role === 'leader';
   return `
     <tr>
       <td><strong>${escapeHtml(row.sellerArticle || '—')}</strong><div class="help-text">Ozon: ${escapeHtml(String(row.ozonProductId || row.ozonArticle || '—'))}</div></td>
@@ -684,14 +1312,21 @@ function renderTaskRow(row) {
       <td><span class="badge ${row.priorityBucket}">${escapeHtml(row.priorityLabel || '—')}</span></td>
       <td>${formatNum(getRowPlanDay(row), 1)}</td>
       <td>${formatNum(getRowFactDay(row), 1)}</td>
-      <td>${formatMoney(getRowPlanMarginDay(row))}</td>
-      <td><strong>${escapeHtml((row.action || '').split('. ')[0] || '—')}</strong><div class="help-text">${escapeHtml(row.reason || '')}</div></td>
       <td>
         <select class="inline-select task-status-input">
           ${['todo','in_progress','done','need_help'].map((key) => `<option value="${key}" ${state.status === key ? 'selected' : ''}>${statusLabel(key)}</option>`).join('')}
         </select>
       </td>
-      <td><input class="inline-input inline-note task-comment-input" value="${escapeAttr(state.comment || '')}" placeholder="Что сделано / что мешает" /></td>
+      <td>${isLeader
+        ? `<input class="inline-input task-due-input" type="date" value="${escapeAttr(state.due_date || appState.workDate)}" />`
+        : `<span class="inline-readonly">${escapeHtml(state.due_date || appState.workDate)}</span><input class="task-due-input" type="hidden" value="${escapeAttr(state.due_date || appState.workDate)}" />`}</td>
+      <td>${isLeader
+        ? `<input class="inline-input inline-note task-leader-input" value="${escapeAttr(state.leader_comment || row.action || '')}" placeholder="Что сделать / на что смотреть" />`
+        : `<div class="inline-readonly inline-multiline">${escapeHtml(state.leader_comment || row.action || '—')}</div><input class="task-leader-input" type="hidden" value="${escapeAttr(state.leader_comment || row.action || '')}" />`}</td>
+      <td>${isLeader
+        ? `<div class="inline-readonly inline-multiline">${escapeHtml(state.manager_comment || state.comment || '—')}</div><input class="task-manager-input" type="hidden" value="${escapeAttr(state.manager_comment || state.comment || '')}" />`
+        : `<input class="inline-input inline-note task-manager-input" value="${escapeAttr(state.manager_comment || state.comment || '')}" placeholder="Что сделано / что мешает" />`}</td>
+      <td><span class="help-text">${escapeHtml(state.updated_at ? formatDateTime(state.updated_at) : '—')}</span><div class="help-text">${escapeHtml(state.updated_by || '')}</div></td>
       <td><button class="btn btn-ghost save-row-btn" data-article="${escapeAttr(row.sellerArticle)}" type="button">Сохранить</button></td>
     </tr>
   `;
@@ -1051,14 +1686,37 @@ function renderReportsView() {
   const reports = getAllReports();
   const shared = appState.storage?.isShared();
   const comments = [...(appState.taskComments || [])].sort((a, b) => new Date(b.created_at || b.createdAt || 0) - new Date(a.created_at || a.createdAt || 0));
+  const worklogs = comments.filter((item) => item.comment_type === 'manager_worklog');
+  const managerComments = comments.filter((item) => item.comment_type !== 'manager_worklog');
   const history = [...(appState.entityHistory || [])].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  const taskInfo = getTaskRowsForCurrentSelection();
+  const statusCounts = countTaskStatuses(taskInfo.rows);
+  const totalTasks = taskInfo.rows.length;
+  const dateChannels = appState.platform === 'All' ? ['WB', 'Ozon'] : [taskInfo.channel];
+  const dateProgressRows = dateChannels.flatMap((channel) => getTaskCalendarData(channel).map((day) => ({
+    date: day.date,
+    channel,
+    pack: `${day.packNumber}/${day.totalPacks}`,
+    total: day.total,
+    done: day.done,
+    progress: `${day.progressPct}%`,
+    state: day.stateLabel
+  })));
+  const progressPct = totalTasks ? Math.round((statusCounts.done / totalTasks) * 100) : 0;
   const summary = [
-    { label: 'Всего записей', value: reports.length },
-    { label: 'Комментариев за день', value: comments.length },
-    { label: 'Изменений за день', value: history.length },
+    { label: 'Дата среза', value: formatDate(appState.workDate) },
+    { label: 'Задач на дату', value: totalTasks },
+    { label: 'Готово', value: statusCounts.done },
+    { label: 'В работе', value: statusCounts.in_progress },
+    { label: 'Нужна помощь', value: statusCounts.need_help },
+    { label: 'Прогресс', value: `${progressPct}%` },
+    { label: 'Рабочих записей за дату', value: worklogs.length },
+    { label: 'Комментариев за дату', value: managerComments.length },
+    { label: 'Изменений за дату', value: history.length },
     { label: 'Режим хранения', value: appState.storage.getDescriptor().label },
     { label: 'Общий журнал', value: shared ? 'Да' : 'Нет' },
-    { label: 'Что делать дальше', value: shared ? 'Проверять историю' : 'Заменить config.js и shared-storage.js' }
+    { label: 'Последняя синхронизация', value: appState.lastSharedRefreshAt ? formatTimeOnly(appState.lastSharedRefreshAt) : '—' },
+    { label: 'Что делать дальше', value: shared ? 'Открыть другую дату сверху и проверить историю' : 'Подключить shared backend' }
   ];
   els.reportSummary.innerHTML = summary.map((item) => `
     <div class="summary-tile">
@@ -1066,6 +1724,24 @@ function renderReportsView() {
       <strong>${item.value}</strong>
     </div>
   `).join('');
+
+  const dateProgressTable = renderSimpleTable([
+    { key: 'date', label: 'Дата' },
+    { key: 'channel', label: 'Контур' },
+    { key: 'pack', label: 'Пакет' },
+    { key: 'total', label: 'SKU' },
+    { key: 'done', label: 'Готово' },
+    { key: 'progress', label: 'Прогресс' },
+    { key: 'state', label: 'Состояние' }
+  ], dateProgressRows.map((item) => ({
+    date: formatDate(item.date),
+    channel: item.channel,
+    pack: item.pack,
+    total: item.total,
+    done: item.done,
+    progress: item.progress,
+    state: item.state
+  })));
 
   const reportTable = renderSimpleTable([
     { key: 'time', label: 'Когда' },
@@ -1083,17 +1759,33 @@ function renderReportsView() {
     note: escapeHtml(item.note || '')
   })));
 
+  const worklogTable = renderSimpleTable([
+    { key: 'time', label: 'Когда' },
+    { key: 'who', label: 'Кто' },
+    { key: 'article', label: 'Артикул' },
+    { key: 'type', label: 'Тип работы' },
+    { key: 'status', label: 'Статус' },
+    { key: 'body', label: 'Что сделали' }
+  ], worklogs.slice(0, 200).map((item) => ({
+    time: formatDateTime(item.created_at || item.createdAt),
+    who: `<strong>${escapeHtml(item.author_name || '—')}</strong><span class="muted">${escapeHtml(item.platform || '')}</span>`,
+    article: `<strong>${escapeHtml(item.wb_article || item.wbArticle || '—')}</strong><span class="muted">${escapeHtml(item.seller_article || item.sellerArticle || '')}</span>`,
+    type: escapeHtml(workTypeLabel(item.meta?.workType || item.meta?.work_type || 'other')),
+    status: `<span class="badge ${normalizeStatus(item.meta?.status || 'saved')}">${statusLabel(item.meta?.status || 'saved')}</span>`,
+    body: escapeHtml(item.body || '')
+  })));
+
   const commentsTable = renderSimpleTable([
     { key: 'time', label: 'Когда' },
     { key: 'who', label: 'Кто' },
     { key: 'article', label: 'Артикул' },
     { key: 'type', label: 'Тип' },
     { key: 'body', label: 'Комментарий' }
-  ], comments.slice(0, 150).map((item) => ({
+  ], managerComments.slice(0, 200).map((item) => ({
     time: formatDateTime(item.created_at || item.createdAt),
     who: `<strong>${escapeHtml(item.author_name || '—')}</strong><span class="muted">${escapeHtml(item.platform || '')}</span>`,
     article: `<strong>${escapeHtml(item.wb_article || item.wbArticle || '—')}</strong><span class="muted">${escapeHtml(item.seller_article || item.sellerArticle || '')}</span>`,
-    type: escapeHtml(item.comment_type || 'comment'),
+    type: escapeHtml(commentTypeLabel(item.comment_type || 'comment')),
     body: escapeHtml(item.body || '')
   })));
 
@@ -1105,7 +1797,7 @@ function renderReportsView() {
     { key: 'event', label: 'Событие' },
     { key: 'fields', label: 'Что поменялось' },
     { key: 'note', label: 'Комментарий' }
-  ], history.slice(0, 150).map((item) => ({
+  ], history.slice(0, 200).map((item) => ({
     time: formatDateTime(item.created_at),
     entity: escapeHtml(item.entity_type || '—'),
     article: `<strong>${escapeHtml(item.wb_article || '—')}</strong><span class="muted">${escapeHtml(item.seller_article || '')}</span>`,
@@ -1117,8 +1809,16 @@ function renderReportsView() {
 
   els.reportsTable.innerHTML = `
     <section class="report-section">
+      <h3>Выполнение по датам</h3>
+      <div class="simple-table-wrap">${dateProgressTable}</div>
+    </section>
+    <section class="report-section" style="margin-top:16px;">
       <h3>Журнал сохранений</h3>
       <div class="simple-table-wrap">${reportTable}</div>
+    </section>
+    <section class="report-section" style="margin-top:16px;">
+      <h3>Журнал действий менеджеров</h3>
+      <div class="simple-table-wrap">${worklogTable}</div>
     </section>
     <section class="report-section" style="margin-top:16px;">
       <h3>Комментарии менеджеров</h3>
@@ -1135,7 +1835,7 @@ function exportReportsJson() {
   const blob = new Blob([JSON.stringify(getAllReports(), null, 2)], { type: 'application/json;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'tekstilno_portal_reports_v23.json';
+  a.download = 'tekstilno_portal_reports_v32.json';
   a.click();
   URL.revokeObjectURL(a.href);
 }

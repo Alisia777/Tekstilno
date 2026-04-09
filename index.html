@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Текстильно · Portal v24</title>
   <meta name="description" content="Портал Текстильно: задачи менеджеров, кластера и поставки, продажи, PnL и журнал сдачи." />
-  <link rel="stylesheet" href="portal.css" />
-  <script src="config.js"></script>
-  <script defer src="shared-storage.js"></script>
-  <script defer src="portal.js"></script>
+  <link rel="stylesheet" href="portal.css?v=v35-worklog" />
+  <script src="config.js?v=v35-worklog"></script>
+  <script defer src="shared-storage.js?v=v35-worklog"></script>
+  <script defer src="portal.js?v=v35-worklog"></script>
 </head>
 <body>
   <div class="portal-shell">
@@ -284,6 +284,8 @@
                 <p>Главная проверка удобства: видно ли, кто и что сохранил.</p>
               </div>
               <div class="toolbar compact-toolbar">
+                <span class="sync-note" id="syncStatusNote">Синхронизация…</span>
+                <button class="btn btn-ghost" id="refreshSharedBtn" type="button">Обновить из Supabase</button>
                 <button class="btn btn-ghost" id="exportReportsBtn" type="button">Экспорт JSON</button>
                 <label class="btn btn-ghost btn-file" for="importReportsInput">Импорт JSON<input id="importReportsInput" type="file" accept=".json" /></label>
               </div>

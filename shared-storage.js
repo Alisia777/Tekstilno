@@ -56,12 +56,16 @@
     }
 
     async function restRequest(table, { method = 'GET', params = {}, body = null, prefer = null } = {}) {
-      const headers = Object.assign({}, commonHeaders);
+      const headers = Object.assign({}, commonHeaders, {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        Pragma: 'no-cache'
+      });
       if (method !== 'GET') headers['Content-Type'] = 'application/json';
       if (prefer) headers.Prefer = prefer;
       const response = await fetch(`${restBase}/${table}${buildQuery(params)}`, {
         method,
         headers,
+        cache: 'no-store',
         body: body == null ? undefined : JSON.stringify(body)
       });
       if (!response.ok) {
@@ -94,6 +98,26 @@
           });
         }
         return sessionStore.tasks.filter((item) => item.work_date === workDate);
+      },
+      async listTaskStatesRange(dateFrom, dateTo, filter = {}) {
+        if (remoteReady) {
+          return restRequest(tables.tasks, {
+            params: {
+              select: '*',
+              and: `(work_date.gte.${dateFrom},work_date.lte.${dateTo})`,
+              platform: filter.platform ? `eq.${filter.platform}` : undefined,
+              seller_article: filter.seller_article ? `eq.${filter.seller_article}` : undefined,
+              order: 'work_date.asc,updated_at.desc'
+            }
+          });
+        }
+        return sessionStore.tasks.filter((item) => {
+          if (dateFrom && String(item.work_date) < String(dateFrom)) return false;
+          if (dateTo && String(item.work_date) > String(dateTo)) return false;
+          if (filter.platform && item.platform !== filter.platform) return false;
+          if (filter.seller_article && item.seller_article !== filter.seller_article) return false;
+          return true;
+        });
       },
       async saveTaskState(payload) {
         if (remoteReady) {
