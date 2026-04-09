@@ -1,6 +1,6 @@
 window.APP_CONFIG = {
   organizationName: "Текстильно",
-  siteVersion: "v27-focus-fix",
+  siteVersion: "v28-graph-margin-sync",
   storageMode: "shared-ready",
   planDataUrl: "data/article-plan.json",
   historyDataUrl: "data/history-data.json",
