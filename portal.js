@@ -105,8 +105,8 @@ function bindEvents() {
   els.platformToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
-    appState.platform = btn.dataset.platform;
-    renderAll();
+    const syncManagerRole = appState.role === 'manager_wb' || appState.role === 'manager_ozon';
+    setPlatformSelection(btn.dataset.platform, syncManagerRole);
   });
   els.metricToggle.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
@@ -258,6 +258,36 @@ function getManagers() {
   return appState.data.plan?.managers || {};
 }
 
+function getRoleForPlatform(platform) {
+  if (platform === 'WB') return 'manager_wb';
+  if (platform === 'Ozon') return 'manager_ozon';
+  return 'leader';
+}
+
+function setPlatformSelection(platform, syncManagerRole = false) {
+  appState.platform = platform;
+  if (syncManagerRole) {
+    appState.role = getRoleForPlatform(platform);
+    els.roleSelect.value = appState.role;
+  }
+  renderAll();
+}
+
+function getFocusSplitStats() {
+  const wbRows = getFocusViewByChannel('WB')?.rows || [];
+  const ozonRows = getFocusViewByChannel('Ozon')?.rows || [];
+  const wbSeller = new Set(wbRows.map((item) => item.sellerArticle));
+  const ozonSeller = new Set(ozonRows.map((item) => item.sellerArticle));
+  const overlapSeller = [...wbSeller].filter((item) => ozonSeller.has(item)).length;
+  return {
+    wbCount: wbRows.length,
+    ozonCount: ozonRows.length,
+    overlapSeller,
+    wbOnlyCount: wbRows.length - overlapSeller,
+    ozonOnlyCount: ozonRows.length - overlapSeller
+  };
+}
+
 function getManagerByChannel(channel) {
   return Object.entries(getManagers()).find(([, manager]) => manager.channel === channel);
 }
@@ -385,9 +415,11 @@ function getPackForManager(managerName) {
 
 function getTaskRowsForCurrentSelection() {
   let channel = appState.platform;
-  if (appState.role === 'manager_wb') channel = 'WB';
-  if (appState.role === 'manager_ozon') channel = 'Ozon';
-  if (channel === 'All') channel = 'WB';
+  if (channel === 'All') {
+    if (appState.role === 'manager_wb') channel = 'WB';
+    else if (appState.role === 'manager_ozon') channel = 'Ozon';
+    else channel = 'WB';
+  }
   const focusView = getFocusViewByChannel(channel);
   if (!focusView) return { channel, managerName: '', manager: null, rows: [], taskPoolCount: 0, dueDate: appState.workDate, focusProgram: null };
   return focusView;
@@ -746,6 +778,7 @@ function renderTasksView() {
   const sprint = taskInfo.focusProgram?.dailyTemplate || [];
   const managerTitle = taskInfo.managerName || '—';
   const channelLabel = taskInfo.channel || '—';
+  const splitStats = getFocusSplitStats();
   els.taskPackMeta.textContent = `Закреплённый список на ${formatDate(appState.workDate)}. Внутри ${taskInfo.rows.length} SKU. Контрольная дата: ${formatDate(taskInfo.dueDate)}.`;
   els.taskManagerCard.innerHTML = `
     <div class="task-head-grid">
@@ -759,10 +792,22 @@ function renderTasksView() {
         <span class="tag-chip">Источник: последние своды маржинальности</span>
       </div>
     </div>
+    <div class="segmented" role="tablist" aria-label="Списки менеджеров по площадкам">
+      <button class="seg-btn task-platform-btn ${taskInfo.channel === 'WB' ? 'active' : ''}" data-platform="WB" type="button">WB · ${splitStats.wbCount} SKU</button>
+      <button class="seg-btn task-platform-btn ${taskInfo.channel === 'Ozon' ? 'active' : ''}" data-platform="Ozon" type="button">Ozon · ${splitStats.ozonCount} SKU</button>
+    </div>
+    <p class="help-text">Проверка разделения: общих sellerArticle — ${splitStats.overlapSeller}; только WB — ${splitStats.wbOnlyCount}; только Ozon — ${splitStats.ozonOnlyCount}. Переключатель сверху и кнопки тут меняют список синхронно.</p>
     <p class="help-text">Статусы: не начато — ${statusCounts.todo}, в работе — ${statusCounts.in_progress}, готово — ${statusCounts.done}, нужна помощь — ${statusCounts.need_help}.</p>
     ${focusNotes.length ? `<div class="manager-notes-list">${focusNotes.map((note) => `<div class="note-pill">${escapeHtml(note)}</div>`).join('')}</div>` : ''}
     ${sprint.length ? `<div class="sprint-grid">${sprint.map((item) => `<article class="sprint-step"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.task)}</span></article>`).join('')}</div>` : ''}
   `;
+  els.taskManagerCard.querySelectorAll('.task-platform-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const syncManagerRole = appState.role === 'manager_wb' || appState.role === 'manager_ozon';
+      setPlatformSelection(btn.dataset.platform, syncManagerRole);
+    });
+  });
+
   els.tasksTableWrap.innerHTML = `
     <table class="tasks-table tasks-focus-table">
       <thead>
