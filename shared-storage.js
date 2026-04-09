@@ -1,18 +1,11 @@
 (function (global) {
-  let rootWindow = global;
-  try {
-    if (global.top && global.top.location && global.top.location.origin === global.location.origin) {
-      rootWindow = global.top;
-    }
-  } catch (error) {
-    rootWindow = global;
-  }
-
-  const sessionStore = rootWindow.__TEKSTILNO_SESSION_STORE__ || (rootWindow.__TEKSTILNO_SESSION_STORE__ = {
+  const sessionStore = global.__TEKSTILNO_SESSION_STORE__ || (global.__TEKSTILNO_SESSION_STORE__ = {
     reports: [],
     tasks: [],
     supplyManual: [],
-    orders: []
+    orders: [],
+    comments: [],
+    history: []
   });
 
   function createSharedStorage(config) {
@@ -22,14 +15,17 @@
       reports: 'portal_activity_log',
       tasks: 'portal_task_state',
       supplyManual: 'portal_supply_manual',
-      orders: 'portal_order_requests'
+      orders: 'portal_order_requests',
+      comments: 'portal_task_comments',
+      history: 'portal_entity_history'
     }, backend.tables || {});
 
-    const remoteReady = provider === 'supabase' && Boolean(backend.supabaseUrl && backend.supabaseAnonKey);
+    const publicKey = backend.supabasePublishableKey || backend.supabaseAnonKey || '';
+    const remoteReady = provider === 'supabase' && Boolean(backend.supabaseUrl && publicKey);
     const restBase = remoteReady ? `${String(backend.supabaseUrl).replace(/\/$/, '')}/rest/v1` : '';
     const commonHeaders = remoteReady ? {
-      apikey: backend.supabaseAnonKey,
-      Authorization: `Bearer ${backend.supabaseAnonKey}`
+      apikey: publicKey,
+      Authorization: `Bearer ${publicKey}`
     } : {};
 
     function descriptor() {
@@ -38,7 +34,7 @@
           code: 'shared-supabase',
           label: 'shared-supabase',
           shared: true,
-          note: 'Общий журнал и статусы пишутся в Supabase.'
+          note: 'Общий журнал, комментарии и история пишутся в Supabase.'
         };
       }
       return {
@@ -121,7 +117,7 @@
             }
           });
         }
-        return [...sessionStore.reports].sort((a, b) => String(b.created_at || b.createdAt || '').localeCompare(String(a.created_at || a.createdAt || '')));
+        return [...sessionStore.reports].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
       },
       async saveReport(payload) {
         if (remoteReady) {
@@ -170,7 +166,7 @@
             }
           });
         }
-        return [...sessionStore.orders].sort((a, b) => String(b.created_at || b.createdAt || '').localeCompare(String(a.created_at || a.createdAt || '')));
+        return [...sessionStore.orders].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
       },
       async saveOrderRequest(payload) {
         if (remoteReady) {
@@ -183,6 +179,60 @@
         }
         sessionStore.orders.unshift(payload);
         return payload;
+      },
+      async listTaskComments(filter = {}) {
+        if (remoteReady) {
+          return restRequest(tables.comments, {
+            params: {
+              select: '*',
+              work_date: filter.work_date ? `eq.${filter.work_date}` : undefined,
+              platform: filter.platform ? `eq.${filter.platform}` : undefined,
+              seller_article: filter.seller_article ? `eq.${filter.seller_article}` : undefined,
+              order: 'created_at.desc',
+              limit: String(filter.limit || 500)
+            }
+          });
+        }
+        return sessionStore.comments.filter((item) => {
+          if (filter.work_date && item.work_date !== filter.work_date) return false;
+          if (filter.platform && item.platform !== filter.platform) return false;
+          if (filter.seller_article && item.seller_article !== filter.seller_article) return false;
+          return true;
+        });
+      },
+      async saveTaskComment(payload) {
+        if (remoteReady) {
+          const rows = await restRequest(tables.comments, {
+            method: 'POST',
+            body: [payload],
+            prefer: 'return=representation'
+          });
+          return rows[0] || payload;
+        }
+        sessionStore.comments.unshift(payload);
+        return payload;
+      },
+      async listHistory(filter = {}) {
+        if (remoteReady) {
+          return restRequest(tables.history, {
+            params: {
+              select: '*',
+              work_date: filter.work_date ? `eq.${filter.work_date}` : undefined,
+              platform: filter.platform ? `eq.${filter.platform}` : undefined,
+              seller_article: filter.seller_article ? `eq.${filter.seller_article}` : undefined,
+              manager_name: filter.manager_name ? `eq.${filter.manager_name}` : undefined,
+              order: 'created_at.desc',
+              limit: String(filter.limit || 500)
+            }
+          });
+        }
+        return sessionStore.history.filter((item) => {
+          if (filter.work_date && item.work_date !== filter.work_date) return false;
+          if (filter.platform && item.platform !== filter.platform) return false;
+          if (filter.seller_article && item.seller_article !== filter.seller_article) return false;
+          if (filter.manager_name && item.manager_name !== filter.manager_name) return false;
+          return true;
+        });
       }
     };
   }
